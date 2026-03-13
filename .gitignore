@@ -35,3 +35,6 @@ Thumbs.db
 # Cache
 .pytest_cache/
 .ruff_cache/
+
+# Migrations (применяются вручную через Supabase SQL Editor)
+migrations/

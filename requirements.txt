@@ -12,3 +12,7 @@ supabase>=2.0.0
 
 # x402gate.io (оплата USDC на Base/EVM)
 x402[evm]>=0.1.0
+
+# Pyrogram (Client API для доступа к аккаунту)
+pyrogram>=2.0.0
+tgcrypto>=1.2.0

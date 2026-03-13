@@ -15,6 +15,14 @@ from utils.utils import get_timestamp
 SYSTEM_MESSAGES = {
     "greeting": "👋 Hey! I'm TalkGuru — an assistant that helps you write responses to messages.\n\nJust send me a text, and I'll suggest a reply!",
     "error": "⚠️ An error occurred. Please try again later.",
+    "connect_prompt_phone": "📱 Send me your phone number (with country code, e.g. +1234567890) to connect your Telegram account.",
+    "connect_prompt_code": "🔑 Enter the verification code that Telegram sent you.",
+    "connect_prompt_2fa": "🔐 Enter your two-factor authentication password.",
+    "connect_success": "✅ Account connected! I'll now suggest replies to your incoming messages as drafts.",
+    "connect_error": "❌ Failed to connect your account. Please try again with /connect.",
+    "connect_already": "✅ Your account is already connected.",
+    "disconnect_success": "🔌 Account disconnected. I'll no longer suggest replies.",
+    "disconnect_not_connected": "ℹ️ Your account is not connected. Use /connect to connect.",
 }
 
 

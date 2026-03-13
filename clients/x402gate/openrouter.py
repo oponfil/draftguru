@@ -14,7 +14,7 @@ from config import (
     RETRY_DELAY,
     RETRY_EXPONENTIAL_BASE,
 )
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, REPLY_SYSTEM_PROMPT
 from utils.utils import get_timestamp
 
 
@@ -116,3 +116,26 @@ async def generate_response(
     if last_error:
         raise last_error
     raise RuntimeError("Unexpected error in generate_response")
+
+
+async def generate_reply(chat_history: list[dict]) -> str:
+    """Генерирует ответ на основе контекста переписки.
+
+    Args:
+        chat_history: Список сообщений [{role: "user"/"other", text: "..."}]
+
+    Returns:
+        Текст ответа от лица пользователя
+    """
+    # Форматируем историю в текст для AI
+    formatted = []
+    for msg in chat_history:
+        prefix = "You" if msg["role"] == "user" else "Them"
+        formatted.append(f"{prefix}: {msg['text']}")
+
+    history_text = "\n".join(formatted)
+
+    return await generate_response(
+        user_message=history_text,
+        system_prompt=REPLY_SYSTEM_PROMPT,
+    )

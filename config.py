@@ -10,6 +10,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 if not BOT_TOKEN:
     print("⚠️  WARNING: BOT_TOKEN не задан!")
 
+# ====== PYROGRAM (Client API) ======
+PYROGRAM_API_ID = int(os.getenv("PYROGRAM_API_ID", "0"))
+PYROGRAM_API_HASH = os.getenv("PYROGRAM_API_HASH", "")
+if not PYROGRAM_API_ID or not PYROGRAM_API_HASH:
+    print("⚠️  WARNING: PYROGRAM_API_ID или PYROGRAM_API_HASH не заданы!")
+
 # ====== ОТЛАДКА ======
 DEBUG_PRINT = os.getenv("DEBUG_PRINT", "False").lower() in ("true", "1", "yes")
 
@@ -37,3 +43,6 @@ TRANSLATION_MODEL = "openai/gpt-5-nano"  # Модель для перевода 
 RETRY_ATTEMPTS = 3  # Количество повторных попыток
 RETRY_DELAY = 2.0  # Базовая задержка (секунды)
 RETRY_EXPONENTIAL_BASE = 2.0  # База экспоненциальной задержки
+
+# ====== КОНТЕКСТ ======
+MAX_CONTEXT_MESSAGES = 100  # Макс. кол-во сообщений из чата для контекста
