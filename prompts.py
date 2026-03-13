@@ -1,11 +1,13 @@
 # prompts.py — Все промпты для ИИ
 
-SYSTEM_PROMPT = (
+# Промпт для общения с пользователем — используется в on_text (bot.py) через generate_response (openrouter.py)
+BOT_PROMPT = (
     "You are a smart assistant that helps users write responses to messages. "
     "Be concise, helpful, and to the point. "
     "Always respond in the same language as the user's message."
 )
 
+# Промпт для перевода системных сообщений — используется в translate_messages (system_messages.py)
 TRANSLATE_MESSAGES_PROMPT = """Translate each string from the array `messages` into: {language_code}
 
 IMPORTANT:
@@ -22,6 +24,7 @@ Example response (for two items):
 messages = {messages_json}
 """
 
+# Промпт для генерации ответа по контексту переписки — используется в generate_reply (openrouter.py)
 REPLY_SYSTEM_PROMPT = """You are a smart assistant helping the user write a reply in a conversation.
 
 You receive the recent chat history between the user and another person.

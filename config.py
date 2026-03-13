@@ -36,8 +36,7 @@ EVM_PRIVATE_KEY = os.getenv("EVM_PRIVATE_KEY", "")
 DEFAULT_LANGUAGE_CODE = "en"  # Язык по умолчанию (ISO 639-1)
 
 # ====== МОДЕЛЬ ИИ ======
-CHAT_MODEL = "google/gemini-3.1-flash-lite-preview"  # Основная модель через OpenRouter
-TRANSLATION_MODEL = "openai/gpt-5-nano"  # Модель для перевода системных сообщений
+LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель ИИ через OpenRouter
 
 # ====== RETRY ======
 RETRY_ATTEMPTS = 3  # Количество повторных попыток

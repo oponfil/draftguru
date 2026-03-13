@@ -31,18 +31,7 @@
 - **Type Hinting**: Обязательно для всех функций (`def func(a: int) -> bool:`)
 - **Docstrings**: На **русском языке**, обязательны для публичных функций
 
-## 4. Архитектура
-
-- **bot.py**: Обработчики Telegram, роутинг
-- **config.py**: Все константы и переменные окружения
-- **clients/**: API-клиенты (x402gate, OpenRouter)
-- **database/**: Запросы к Supabase
-
-### Правило
-❌ Не хардкодьте значения в логике.
-✅ Выносите в `config.py`.
-
-## 5. Асинхронность (Async/Await)
+## 4. Асинхронность (Async/Await)
 
 Все сетевые вызовы — `async`:
 - Telegram API
@@ -54,24 +43,24 @@
 result = await asyncio.to_thread(blocking_function, arg1)
 ```
 
-## 6. Логирование
+## 5. Логирование
 
 - Формат: `print(f"{get_timestamp()} [COMPONENT] Message")`
 - ❌ Ошибки **не оборачивать** в `if DEBUG_PRINT:` — должны быть видны всегда
 - ✅ Информационный вывод — `if DEBUG_PRINT:`
 - Уровни: `[DEBUG]`, `[INFO]`, `[WARNING]`, `[ERROR]`
 
-## 7. DRY (Don't Repeat Yourself)
+## 6. DRY (Don't Repeat Yourself)
 
 ❌ Не дублировать логику.
 ✅ Выносить общий код в отдельные функции.
 
-## 8. Обратная Совместимость
+## 7. Обратная Совместимость
 
 ❌ Не поддерживаем. Старый код удаляем сразу.
 ✅ Один формат, без fallback.
 
-## 9. Linting (Ruff)
+## 8. Linting (Ruff)
 
 Используем **ruff** для проверки кода. Перед каждым коммитом:
 
@@ -82,7 +71,7 @@ ruff check .
 - Все ошибки должны быть исправлены до коммита
 - `# noqa: <RULE>` допустим только с обоснованием (например, `# noqa: E402` для намеренного порядка импортов)
 
-## 10. Git Commits
+## 9. Git Commits
 
 ### Формат: Conventional Commits
 ```
@@ -111,7 +100,7 @@ git add -A
 git commit -F .git-commit-msg.txt
 ```
 
-## 11. Code Review Checklist
+## 10. Code Review Checklist
 
 1. [ ] **DRY**: Нет дублирования
 2. [ ] **Imports**: В начале файла, без lazy imports

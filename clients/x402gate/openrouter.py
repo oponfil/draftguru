@@ -8,27 +8,27 @@ import time
 
 from clients.x402gate import x402gate_client, TopupError
 from config import (
-    CHAT_MODEL,
+    LLM_MODEL,
     DEBUG_PRINT,
     RETRY_ATTEMPTS,
     RETRY_DELAY,
     RETRY_EXPONENTIAL_BASE,
 )
-from prompts import SYSTEM_PROMPT, REPLY_SYSTEM_PROMPT
+from prompts import BOT_PROMPT, REPLY_SYSTEM_PROMPT
 from utils.utils import get_timestamp
 
 
 async def generate_response(
     user_message: str,
-    model: str = CHAT_MODEL,
-    system_prompt: str | None = SYSTEM_PROMPT,
+    model: str = LLM_MODEL,
+    system_prompt: str | None = BOT_PROMPT,
     reasoning_effort: str = "medium",
 ) -> str:
     """Генерирует ответ на сообщение пользователя через OpenRouter.
 
     Args:
         user_message: Текст сообщения пользователя
-        model: Модель OpenRouter (по умолчанию CHAT_MODEL из config)
+        model: Модель OpenRouter (по умолчанию LLM_MODEL из config)
         system_prompt: Системный промпт (None — без системного промпта)
         reasoning_effort: Уровень reasoning (minimal/low/medium/high)
 

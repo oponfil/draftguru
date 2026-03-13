@@ -4,6 +4,13 @@
 
 Использует **Gemini 3.1 Flash** через OpenRouter и [x402gate.io](https://x402gate.io) (оплата USDC на Base).
 
+## Возможности
+
+- 💬 **Ответы на сообщения** — отправьте текст, бот предложит ответ
+- 🔗 **Подключение аккаунта** (`/connect`) — бот читает входящие сообщения и предлагает ответ как черновик
+- 🌐 **Мультиязычность** — интерфейс переводится на язык пользователя
+- 📝 **Черновики** — ответ появляется в поле ввода, отправляете сами
+
 ## Быстрый старт
 
 ### 1. Клонировать и установить зависимости
@@ -22,6 +29,7 @@ cp .env.example .env
 
 Заполните `.env`:
 - `BOT_TOKEN` — получите у [@BotFather](https://t.me/BotFather)
+- `PYROGRAM_API_ID` и `PYROGRAM_API_HASH` — из [my.telegram.org](https://my.telegram.org)
 - `SUPABASE_URL` и `SUPABASE_KEY` — из [Supabase Dashboard](https://supabase.com) (используйте **service_role** ключ)
 - `EVM_PRIVATE_KEY` — приватный ключ кошелька Base с USDC для оплаты AI
 
@@ -35,6 +43,14 @@ cp .env.example .env
 python bot.py
 ```
 
+## Команды бота
+
+| Команда | Описание |
+|---------|----------|
+| `/start` | Начать |
+| `/connect` | Подключить Telegram-аккаунт (Pyrogram) |
+| `/disconnect` | Отключить аккаунт |
+
 ## Деплой на Railway
 
 1. Создайте проект на [Railway](https://railway.app)
@@ -44,17 +60,20 @@ python bot.py
 
 ## Архитектура
 
-```
-bot.py              ← Telegram handlers (polling)
-config.py           ← Константы и env
-clients/x402gate/   ← Клиент x402gate.io (Base/EVM, OpenRouter)
-database/           ← Supabase (таблица users)
-```
+- **bot.py** — Telegram-обработчики (`/start`, `on_text`), запуск бота
+- **handlers/** — Обработчики команд (`pyrogram_handlers.py` — `/connect`, `/disconnect`)
+- **config.py** — Все константы и переменные окружения
+- **prompts.py** — Все промпты для ИИ
+- **system_messages.py** — Системные сообщения с переводом на язык пользователя
+- **clients/** — API-клиенты (`x402gate`, `pyrogram_client`)
+- **database/** — Запросы к Supabase
+- **utils/** — Утилиты (`get_timestamp`, `extract_rating_from_chat`)
 
 ## Стек
 
 - **Python 3.13**
 - **python-telegram-bot** — Telegram Bot API
+- **Pyrogram** — Telegram Client API (чтение сообщений, черновики)
 - **x402gate.io** → OpenRouter → Gemini 3.1 Flash
 - **Supabase** — PostgreSQL (БД)
 - **Railway** — хостинг

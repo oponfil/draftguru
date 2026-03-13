@@ -6,7 +6,7 @@ import re
 from typing import Dict
 
 from clients.x402gate.openrouter import generate_response
-from config import DEFAULT_LANGUAGE_CODE, DEBUG_PRINT, TRANSLATION_MODEL
+from config import DEFAULT_LANGUAGE_CODE, DEBUG_PRINT
 from prompts import TRANSLATE_MESSAGES_PROMPT
 from utils.utils import get_timestamp
 
@@ -23,6 +23,9 @@ SYSTEM_MESSAGES = {
     "connect_already": "✅ Your account is already connected.",
     "disconnect_success": "🔌 Account disconnected. I'll no longer suggest replies.",
     "disconnect_not_connected": "ℹ️ Your account is not connected. Use /connect to connect.",
+    "menu_start": "Start",
+    "menu_connect": "Connect account",
+    "menu_disconnect": "Disconnect account",
 }
 
 
@@ -52,7 +55,7 @@ async def translate_messages(messages: list[str], language_code: str) -> list[st
             messages_json=messages_json,
         )
 
-        result_text = await generate_response(prompt, model=TRANSLATION_MODEL, system_prompt=None)
+        result_text = await generate_response(prompt, system_prompt=None)
 
         # Убираем markdown-обёртку (```json ... ```)
         if result_text.startswith("```"):
