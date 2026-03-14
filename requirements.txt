@@ -19,3 +19,8 @@ tgcrypto>=1.2.0
 
 # QR-код для /connectqr
 qrcode>=7.0
+
+# Тестирование
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+pytest-cov>=5.0.0

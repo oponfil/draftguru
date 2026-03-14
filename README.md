@@ -49,7 +49,9 @@ python bot.py
 |---------|----------|
 | `/start` | Начать |
 | `/connect` | Подключить Telegram-аккаунт (Pyrogram) |
+| `/connectqr` | Подключить через QR-код |
 | `/disconnect` | Отключить аккаунт |
+| `/status` | Статус подключения |
 
 ## Деплой на Railway
 
@@ -57,6 +59,16 @@ python bot.py
 2. Подключите GitHub-репозиторий
 3. Добавьте переменные окружения (из `.env.example`)
 4. Railway автоматически обнаружит `Procfile` и запустит бота
+
+## Тесты
+
+```bash
+pytest tests/ -v
+```
+
+Все внешние зависимости замоканы — тесты полностью офлайновые и не требуют `.env`.
+
+Тесты автоматически запускаются на GitHub при push в `main`/`dev` и при PR (GitHub Actions).
 
 ## Архитектура
 
@@ -68,6 +80,7 @@ python bot.py
 - **clients/** — API-клиенты (`x402gate`, `pyrogram_client`)
 - **database/** — Запросы к Supabase
 - **utils/** — Утилиты (`get_timestamp`, `extract_rating_from_chat`)
+- **tests/** — Unit-тесты (pytest)
 
 ## Стек
 

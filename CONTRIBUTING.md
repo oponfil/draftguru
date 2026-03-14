@@ -100,7 +100,20 @@ git add -A
 git commit -F .git-commit-msg.txt
 ```
 
-## 10. Code Review Checklist
+## 10. Тестирование (pytest)
+
+Все модули покрыты unit-тестами. Перед коммитом:
+
+```bash
+pytest tests/ -v
+```
+
+- Все тесты должны проходить
+- Внешние зависимости **мокаются** — `.env` не нужен
+- GitHub Actions автоматически запускает тесты при push и PR
+- Новый код → новые тесты
+
+## 11. Code Review Checklist
 
 1. [ ] **DRY**: Нет дублирования
 2. [ ] **Imports**: В начале файла, без lazy imports
@@ -109,4 +122,5 @@ git commit -F .git-commit-msg.txt
 5. [ ] **Logging**: Ошибки без `if DEBUG_PRINT`
 6. [ ] **Constants**: Всё в `config.py`
 7. [ ] **Linting**: `ruff check .` проходит без ошибок
-8. [ ] **Commits**: Conventional Commits, английский
+8. [ ] **Tests**: `pytest tests/ -v` проходит без ошибок
+9. [ ] **Commits**: Conventional Commits, английский
