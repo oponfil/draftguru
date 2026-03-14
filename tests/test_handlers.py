@@ -13,7 +13,8 @@ from handlers.pyrogram_handlers import (
     _bot_drafts,
     _pending_drafts,
 )
-from system_messages import SYSTEM_MESSAGES
+
+TYPING_TEXT = "✍️ TalkGuru is typing..."
 
 
 class TestOnDisconnect:
@@ -122,7 +123,9 @@ class TestOnPyrogramMessage:
         message.chat.id = 456
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen:
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en"}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "other", "text": "Hello"}
             ])
@@ -132,7 +135,10 @@ class TestOnPyrogramMessage:
             await on_pyrogram_message(123, MagicMock(), message)
 
         mock_gen.assert_called_once()
-        mock_pc.set_draft.assert_called_once_with(123, 456, "Hi there!")
+        # Первый вызов — проба (статус), второй — AI-ответ
+        assert mock_pc.set_draft.call_count == 2
+        mock_pc.set_draft.assert_any_call(123, 456, TYPING_TEXT)
+        mock_pc.set_draft.assert_any_call(123, 456, "Hi there!")
 
 
 class TestOnPyrogramDraft:
@@ -141,11 +147,11 @@ class TestOnPyrogramDraft:
     @pytest.mark.asyncio
     async def test_ignores_bot_draft(self):
         """Черновик, установленный ботом → игнорируется."""
-        _bot_drafts[(123, 456)] = SYSTEM_MESSAGES["draft_typing"]
+        _bot_drafts[(123, 456)] = TYPING_TEXT
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
             mock_pc.set_draft = AsyncMock()
-            await on_pyrogram_draft(123, 456, SYSTEM_MESSAGES["draft_typing"])
+            await on_pyrogram_draft(123, 456, TYPING_TEXT)
 
         mock_pc.set_draft.assert_not_called()
         # Cleanup
@@ -170,7 +176,9 @@ class TestOnPyrogramDraft:
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
              patch("handlers.pyrogram_handlers.generate_response", new_callable=AsyncMock) as mock_gen, \
-             patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock):
+             patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en"}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "user", "text": "Привет"},
             ])
@@ -181,7 +189,7 @@ class TestOnPyrogramDraft:
 
         # Первый вызов — проба (статус), второй — AI-ответ
         assert mock_pc.set_draft.call_count == 2
-        mock_pc.set_draft.assert_any_call(123, 456, SYSTEM_MESSAGES["draft_typing"])
+        mock_pc.set_draft.assert_any_call(123, 456, TYPING_TEXT)
         mock_pc.set_draft.assert_any_call(123, 456, "AI ответ")
         mock_gen.assert_called_once()
 

@@ -11,6 +11,7 @@ from database.users import (
     save_session,
     get_session,
     clear_session,
+    get_user,
 )
 
 
@@ -188,3 +189,41 @@ class TestClearSession:
 
         mock_table.update.assert_called_once_with({"session_string": None})
         mock_table.eq.assert_called_once_with("user_id", 123)
+
+
+class TestGetUser:
+    """Тесты для get_user()."""
+
+    @pytest.mark.asyncio
+    async def test_returns_user(self):
+        mock_table = _make_mock_table()
+        mock_table.execute.return_value = MagicMock(
+            data=[{"user_id": 123, "language_code": "ru", "username": "alice"}]
+        )
+        with patch("database.users.supabase") as mock_sb:
+            mock_sb.table.return_value = mock_table
+
+            result = await get_user(123)
+
+        assert result["user_id"] == 123
+        assert result["language_code"] == "ru"
+        assert result["username"] == "alice"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_empty(self):
+        mock_table = _make_mock_table()
+        mock_table.execute.return_value = MagicMock(data=[])
+        with patch("database.users.supabase") as mock_sb:
+            mock_sb.table.return_value = mock_table
+
+            result = await get_user(123)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_error(self):
+        with patch("database.users.supabase") as mock_sb:
+            mock_sb.table.side_effect = Exception("DB error")
+            result = await get_user(123)
+        assert result is None
+

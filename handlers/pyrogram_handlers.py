@@ -22,12 +22,9 @@ from utils.utils import get_timestamp, typing_action
 from clients.x402gate.openrouter import generate_reply, generate_response
 from clients import pyrogram_client
 from database import supabase
-from database.users import save_session, clear_session
-from system_messages import get_system_message, get_system_messages, SYSTEM_MESSAGES
+from database.users import save_session, clear_session, get_user
+from system_messages import get_system_message, get_system_messages
 from prompts import DRAFT_INSTRUCTION_PROMPT
-
-
-
 
 
 # ====== /disconnect ======
@@ -210,6 +207,13 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         print(f"{get_timestamp()} [PYROGRAM] New message for user {user_id} from {sender}: '{message.text[:50]}'")
 
     try:
+        # Показываем пользователю что бот работает
+        user = await get_user(user_id)
+        lang = user.get("language_code") if user else None
+        probe_text = await get_system_message(lang, "draft_typing")
+        _bot_drafts[(user_id, chat_id)] = probe_text
+        await pyrogram_client.set_draft(user_id, chat_id, probe_text)
+
         # Читаем историю чата
         history = await pyrogram_client.read_chat_history(user_id, chat_id)
         if not history:
@@ -220,8 +224,10 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         if not reply_text or not reply_text.strip():
             return
 
-        # Устанавливаем черновик
-        await pyrogram_client.set_draft(user_id, chat_id, reply_text.strip())
+        # Устанавливаем черновик с AI-ответом
+        ai_text = reply_text.strip()
+        _bot_drafts[(user_id, chat_id)] = ai_text
+        await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR processing message for user {user_id}: {e}")
@@ -256,7 +262,9 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         print(f"{get_timestamp()} [DRAFT] User text for {user_id} in chat {chat_id}: '{instruction[:80]}'")
 
     # Сохраняем инструкцию и ставим пробу (статус-сообщение)
-    probe_text = SYSTEM_MESSAGES["draft_typing"]
+    user = await get_user(user_id)
+    lang = user.get("language_code") if user else None
+    probe_text = await get_system_message(lang, "draft_typing")
     _pending_drafts[key] = instruction
     _bot_drafts[key] = probe_text
     await pyrogram_client.set_draft(user_id, chat_id, probe_text)

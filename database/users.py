@@ -103,3 +103,18 @@ async def clear_session(user_id: int) -> None:
     except Exception as e:
         print(f"{get_timestamp()} [DB] ERROR clear_session {user_id}: {e}")
 
+
+async def get_user(user_id: int) -> Optional[dict]:
+    """Получает все поля пользователя из БД."""
+    try:
+        result = supabase.table("users").select(
+            "*"
+        ).eq("user_id", user_id).execute()
+
+        if result.data and result.data[0]:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"{get_timestamp()} [DB] ERROR get_user {user_id}: {e}")
+        return None
+
