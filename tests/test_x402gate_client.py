@@ -12,7 +12,7 @@ class TestX402GateClientInit:
 
     def test_available_with_key(self):
         """available=True если есть приватный ключ."""
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         assert client.available is True
 
     def test_not_available_without_key(self):
@@ -32,7 +32,7 @@ class TestPrepaidHeaders:
     """Тесты для _prepaid_headers()."""
 
     def test_headers_contain_required_keys(self):
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         headers = client._prepaid_headers("/v1/openrouter/chat/completions")
 
         assert "X-PREPAID-PUBKEY" in headers
@@ -40,7 +40,7 @@ class TestPrepaidHeaders:
         assert "X-PREPAID-TIMESTAMP" in headers
 
     def test_pubkey_is_eth_address(self):
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         headers = client._prepaid_headers("/v1/test")
 
         pubkey = headers["X-PREPAID-PUBKEY"]
@@ -48,7 +48,7 @@ class TestPrepaidHeaders:
         assert len(pubkey) == 42  # Ethereum address
 
     def test_timestamp_is_numeric(self):
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         headers = client._prepaid_headers("/v1/test")
 
         ts = headers["X-PREPAID-TIMESTAMP"]
@@ -60,7 +60,7 @@ class TestGetBalance:
 
     @pytest.mark.asyncio
     async def test_parses_balance(self):
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"balance": 1.5}
@@ -98,7 +98,7 @@ class TestRequest:
     @pytest.mark.asyncio
     async def test_successful_request(self):
         """Успешный запрос (200) обновляет баланс из header."""
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         client._prepaid_balance = 1.0  # Уже есть баланс
 
         mock_response = MagicMock()
@@ -120,7 +120,7 @@ class TestRequest:
     @pytest.mark.asyncio
     async def test_non_200_raises(self):
         """Ответ не-200 → RuntimeError."""
-        client = X402GateClient(private_key="0x" + "ab" * 32)
+        client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
         client._prepaid_balance = 1.0
 
         mock_response = MagicMock()

@@ -28,5 +28,5 @@ jobs:
           PYROGRAM_API_HASH: "test-hash"
           SUPABASE_URL: "https://test.supabase.co"
           SUPABASE_KEY: "test-key"
-          EVM_PRIVATE_KEY: "0xababababababababababababababababababababababababababababababababab"
+          EVM_PRIVATE_KEY: "0x0000000000000000000000000000000000000000000000000000000000000001"
         run: pytest tests/ -v

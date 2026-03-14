@@ -12,7 +12,7 @@ os.environ.setdefault("PYROGRAM_API_ID", "12345")
 os.environ.setdefault("PYROGRAM_API_HASH", "test-api-hash")
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_KEY", "test-supabase-key")
-os.environ.setdefault("EVM_PRIVATE_KEY", "0x" + "ab" * 32)
+os.environ.setdefault("EVM_PRIVATE_KEY", "0x0000000000000000000000000000000000000000000000000000000000000001")
 os.environ.setdefault("DEBUG_PRINT", "false")
 
 
