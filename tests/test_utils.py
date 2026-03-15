@@ -160,3 +160,35 @@ class TestFormatChatHistory:
         assert "[2026-03-14 14:30]" in result
         assert "Them: Без даты" in result
 
+    def test_tz_offset_positive(self):
+        """tz_offset=7 сдвигает время на +7 часов."""
+        dt = datetime(2026, 3, 14, 10, 0, tzinfo=timezone.utc)
+        history = [{"role": "user", "text": "Тест", "date": dt}]
+
+        result = format_chat_history(history, tz_offset=7)
+        assert "[2026-03-14 17:00]" in result
+
+    def test_tz_offset_negative(self):
+        """tz_offset=-5 сдвигает время на -5 часов."""
+        dt = datetime(2026, 3, 14, 10, 0, tzinfo=timezone.utc)
+        history = [{"role": "user", "text": "Тест", "date": dt}]
+
+        result = format_chat_history(history, tz_offset=-5)
+        assert "[2026-03-14 05:00]" in result
+
+    def test_tz_offset_half_hour(self):
+        """tz_offset=5.5 сдвигает время на +5:30."""
+        dt = datetime(2026, 3, 14, 10, 0, tzinfo=timezone.utc)
+        history = [{"role": "user", "text": "Тест", "date": dt}]
+
+        result = format_chat_history(history, tz_offset=5.5)
+        assert "[2026-03-14 15:30]" in result
+
+    def test_tz_offset_zero_unchanged(self):
+        """tz_offset=0 — поведение не меняется."""
+        dt = datetime(2026, 3, 14, 14, 30, tzinfo=timezone.utc)
+        history = [{"role": "user", "text": "Тест", "date": dt}]
+
+        result = format_chat_history(history, tz_offset=0)
+        assert "[2026-03-14 14:30]" in result
+

@@ -1,6 +1,4 @@
-# utils/utils.py — Вспомогательные функции
-
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
 
@@ -40,8 +38,15 @@ def format_chat_history(
     chat_history: list[dict],
     user_info: dict | None = None,
     opponent_info: dict | None = None,
+    tz_offset: float = 0,
 ) -> str:
     """Форматирует историю чата с профилями участников для AI-промпта.
+
+    Args:
+        chat_history: Список сообщений [{role, text, date?, name?}]
+        user_info: Информация о пользователе
+        opponent_info: Информация об оппоненте
+        tz_offset: Смещение часового пояса пользователя (часы, напр. 5.5)
 
     Возвращает строку вида:
         PARTICIPANTS:
@@ -81,6 +86,9 @@ def format_chat_history(
 
     parts = ["PARTICIPANTS:\n" + "\n".join(lines)]
 
+    # Сдвиг для часового пояса
+    tz_delta = timedelta(hours=tz_offset) if tz_offset else timedelta()
+
     # Форматируем историю в текст для AI
     formatted = []
     for msg in chat_history:
@@ -93,7 +101,8 @@ def format_chat_history(
                 name += f" {msg['last_name']}"
         date = msg.get("date")
         if date:
-            ts = date.strftime("%Y-%m-%d %H:%M")
+            local_date = date + tz_delta
+            ts = local_date.strftime("%Y-%m-%d %H:%M")
             formatted.append(f"[{ts}] {name}: {msg['text']}")
         else:
             formatted.append(f"{name}: {msg['text']}")

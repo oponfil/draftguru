@@ -12,6 +12,7 @@ async def generate_reply(
     model: str | None = None,
     custom_prompt: str = "",
     style: str | None = None,
+    tz_offset: float = 0,
 ) -> str:
     """Генерирует ответ на основе контекста переписки.
 
@@ -22,11 +23,12 @@ async def generate_reply(
         model: Модель OpenRouter (None — используется LLM_MODEL по умолчанию)
         custom_prompt: Пользовательский промпт из настроек
         style: Стиль общения (None = под пользователя)
+        tz_offset: Смещение часового пояса пользователя (часы)
 
     Returns:
         Текст ответа от лица пользователя
     """
-    history_text = format_chat_history(chat_history, user_info, opponent_info)
+    history_text = format_chat_history(chat_history, user_info, opponent_info, tz_offset=tz_offset)
 
     kwargs: dict = {
         "user_message": history_text,

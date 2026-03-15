@@ -1,6 +1,6 @@
 # tests/test_pyrogram_client.py — Тесты для clients/pyrogram_client.py
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,6 +32,54 @@ class TestIsActive:
 
     def test_not_active_when_no_client(self):
         assert pyrogram_client.is_active(88888) is False
+
+
+class TestLoopExceptionHandler:
+    """Тесты для установки и восстановления loop exception handler."""
+
+    def teardown_method(self):
+        pyrogram_client._loop_handler_state["previous_handler"] = None
+        pyrogram_client._loop_handler_state["loop"] = None
+
+    def test_installs_and_restores_previous_handler(self):
+        previous_handler = MagicMock()
+        loop = MagicMock()
+        loop.get_exception_handler.return_value = previous_handler
+
+        pyrogram_client._install_pyrogram_exception_handler(loop)
+
+        loop.set_exception_handler.assert_called_once_with(pyrogram_client._pyrogram_task_exception_handler)
+        assert pyrogram_client._loop_handler_state["previous_handler"] is previous_handler
+        assert pyrogram_client._loop_handler_state["loop"] is loop
+
+        loop.get_exception_handler.return_value = pyrogram_client._pyrogram_task_exception_handler
+        pyrogram_client._restore_pyrogram_exception_handler(loop)
+
+        assert loop.set_exception_handler.call_args_list[-1].args[0] is previous_handler
+        assert pyrogram_client._loop_handler_state["previous_handler"] is None
+        assert pyrogram_client._loop_handler_state["loop"] is None
+
+    def test_delegates_non_pyrogram_errors_to_previous_handler(self):
+        previous_handler = MagicMock()
+        pyrogram_client._loop_handler_state["previous_handler"] = previous_handler
+        loop = MagicMock()
+        context = {"exception": RuntimeError("boom")}
+
+        pyrogram_client._pyrogram_task_exception_handler(loop, context)
+
+        previous_handler.assert_called_once_with(loop, context)
+
+    def test_suppresses_known_peer_id_invalid_error(self):
+        previous_handler = MagicMock()
+        pyrogram_client._loop_handler_state["previous_handler"] = previous_handler
+        loop = MagicMock()
+        context = {"exception": ValueError("Peer id invalid: -100123")}
+
+        with patch("builtins.print") as mock_print:
+            pyrogram_client._pyrogram_task_exception_handler(loop, context)
+
+        previous_handler.assert_not_called()
+        mock_print.assert_called_once()
 
 
 class TestStopListening:

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from handlers.settings_handler import _build_settings_text, on_settings, on_settings_callback
+from handlers.settings_handler import _build_settings_text, _format_tz_offset, on_settings, on_settings_callback
 from system_messages import SYSTEM_MESSAGES
 
 MESSAGES = SYSTEM_MESSAGES
@@ -45,7 +45,7 @@ class TestOnSettings:
 
         keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         buttons = keyboard.inline_keyboard
-        assert len(buttons) == 5
+        assert len(buttons) == 6
         assert buttons[0][0].text == "✏️ Drafts: ✅ ON"
         assert buttons[1][0].text == "🤖 Model: FREE"
         assert buttons[2][0].text == "📝 Prompt: not set"
@@ -183,3 +183,76 @@ class TestOnSettingsCallback:
         mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"style": "flirt"})
         keyboard = mock_callback_update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
         assert keyboard.inline_keyboard[3][0].text == "💋 Style: Flirt Guru"
+
+    @pytest.mark.asyncio
+    async def test_cycles_timezone(self, mock_callback_update, mock_context):
+        """Переключает tz_offset: 0 → 1."""
+        mock_callback_update.callback_query.data = "settings:timezone"
+
+        with patch("handlers.settings_handler.get_user_settings", new_callable=AsyncMock,
+                    side_effect=[{"tz_offset": 0}, {"tz_offset": 1}]), \
+             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update, \
+             patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
+            await on_settings_callback(mock_callback_update, mock_context)
+
+        mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"tz_offset": 1})
+
+    @pytest.mark.asyncio
+    async def test_timezone_wraps_around(self, mock_callback_update, mock_context):
+        """tz_offset=13 → следующий -12 (wrap-around)."""
+        mock_callback_update.callback_query.data = "settings:timezone"
+
+        with patch("handlers.settings_handler.get_user_settings", new_callable=AsyncMock,
+                    side_effect=[{"tz_offset": 13}, {"tz_offset": -12}]), \
+             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update, \
+             patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
+            await on_settings_callback(mock_callback_update, mock_context)
+
+        mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"tz_offset": -12})
+
+
+class TestTimezoneHelpers:
+    """Тесты для _format_tz_offset и _build_timezone_label."""
+
+    def test_format_tz_offset_zero(self):
+        assert _format_tz_offset(0) == "0"
+
+    def test_format_tz_offset_positive_whole(self):
+        assert _format_tz_offset(7) == "+7"
+
+    def test_format_tz_offset_negative_whole(self):
+        assert _format_tz_offset(-3) == "-3"
+
+    def test_format_tz_offset_positive_half(self):
+        assert _format_tz_offset(5.5) == "+5:30"
+
+    def test_format_tz_offset_positive_half_iran(self):
+        assert _format_tz_offset(3.5) == "+3:30"
+
+    def test_format_tz_offset_negative_half(self):
+        assert _format_tz_offset(-9.5) == "-9:30"
+
+
+class TestSettingsKeyboardTimezone:
+    """Тесты для кнопки timezone в клавиатуре."""
+
+    def test_keyboard_has_six_rows(self):
+        """Клавиатура содержит 6 строк (включая timezone)."""
+        from handlers.settings_handler import _build_settings_keyboard
+        keyboard = _build_settings_keyboard({}, MESSAGES)
+        assert len(keyboard.inline_keyboard) == 6
+
+    def test_timezone_button_shows_utc(self):
+        """Кнопка timezone по умолчанию содержит UTC0."""
+        from handlers.settings_handler import _build_settings_keyboard
+        keyboard = _build_settings_keyboard({}, MESSAGES)
+        tz_btn = keyboard.inline_keyboard[5][0]
+        assert "UTC0" in tz_btn.text
+        assert tz_btn.callback_data == "settings:timezone"
+
+    def test_timezone_button_custom_offset(self):
+        """Кнопка timezone с offset=5.5 содержит UTC+5:30."""
+        from handlers.settings_handler import _build_settings_keyboard
+        keyboard = _build_settings_keyboard({"tz_offset": 5.5}, MESSAGES)
+        tz_btn = keyboard.inline_keyboard[5][0]
+        assert "UTC+5:30" in tz_btn.text

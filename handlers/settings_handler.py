@@ -1,12 +1,35 @@
 # handlers/settings_handler.py — Обработчик команды /settings
 
+from datetime import datetime, timedelta, timezone
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS
+from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS, TIMEZONE_OFFSETS
 from database.users import get_user_settings, update_user_settings
 from system_messages import get_system_message, get_system_messages
 from utils.utils import get_timestamp, normalize_auto_reply, typing_action
+
+
+def _format_tz_offset(offset: float) -> str:
+    """Форматирует UTC-смещение в строку: '+5:30', '-3', '0'."""
+    if offset == 0:
+        return "0"
+    sign = "+" if offset > 0 else "-"
+    abs_offset = abs(offset)
+    hours = int(abs_offset)
+    minutes = int((abs_offset - hours) * 60)
+    if minutes:
+        return f"{sign}{hours}:{minutes:02d}"
+    return f"{sign}{hours}"
+
+
+def _build_timezone_label(offset: float) -> str:
+    """Формирует текст кнопки часового пояса с текущим временем."""
+    now_utc = datetime.now(timezone.utc)
+    local_time = now_utc + timedelta(hours=offset)
+    time_str = local_time.strftime("%H:%M")
+    return f"🕐 Time: {time_str} (UTC{_format_tz_offset(offset)})"
 
 
 def _build_settings_keyboard(settings: dict, messages: dict) -> InlineKeyboardMarkup:
@@ -22,15 +45,18 @@ def _build_settings_keyboard(settings: dict, messages: dict) -> InlineKeyboardMa
     auto_label = messages.get(AUTO_REPLY_OPTIONS.get(auto_reply, "settings_auto_off"))
     style_label = messages.get(STYLE_OPTIONS.get(settings.get("style"), "settings_style_userlike"))
 
+    tz_offset = settings.get("tz_offset", 0) or 0
+    tz_label = _build_timezone_label(tz_offset)
+
     keyboard = [
         [InlineKeyboardButton(drafts_label, callback_data="settings:drafts")],
         [InlineKeyboardButton(model_label, callback_data="settings:model")],
         [InlineKeyboardButton(prompt_label, callback_data="settings:prompt")],
         [InlineKeyboardButton(style_label, callback_data="settings:style")],
         [InlineKeyboardButton(auto_label, callback_data="settings:auto_reply")],
+        [InlineKeyboardButton(tz_label, callback_data="settings:timezone")],
     ]
     return InlineKeyboardMarkup(keyboard)
-
 
 
 def _build_settings_text(title: str, settings: dict) -> str:
@@ -121,6 +147,17 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if not updated:
             await _send_settings_error(query, u.language_code)
             return
+    elif action == "settings:timezone":
+        current = settings.get("tz_offset", 0) or 0
+        try:
+            idx = TIMEZONE_OFFSETS.index(current)
+        except ValueError:
+            idx = TIMEZONE_OFFSETS.index(0)
+        next_value = TIMEZONE_OFFSETS[(idx + 1) % len(TIMEZONE_OFFSETS)]
+        updated = await update_user_settings(u.id, {"tz_offset": next_value})
+        if not updated:
+            await _send_settings_error(query, u.language_code)
+            return
     else:
         return
 
@@ -137,3 +174,4 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Settings updated by user {u.id}: {action}")
+

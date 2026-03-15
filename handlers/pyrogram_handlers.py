@@ -531,7 +531,8 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
             kwargs["model"] = LLM_MODEL_PRO
         custom_prompt = user_settings.get("custom_prompt", "")
         style = user_settings.get("style")
-        reply_text = await generate_reply(history, user, opponent_info, custom_prompt=custom_prompt, style=style, **kwargs)
+        tz_offset = user_settings.get("tz_offset", 0) or 0
+        reply_text = await generate_reply(history, user, opponent_info, custom_prompt=custom_prompt, style=style, tz_offset=tz_offset, **kwargs)
         if not reply_text or not reply_text.strip():
             return
 
@@ -686,7 +687,8 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
         user_message = ""
         if history:
-            user_message = format_chat_history(history, user, opponent_info)
+            tz_offset = user_settings.get("tz_offset", 0) or 0
+            user_message = format_chat_history(history, user, opponent_info, tz_offset=tz_offset)
             user_message += "\n\n"
         user_message += f"INSTRUCTION: {instruction}"
 

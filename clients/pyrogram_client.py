@@ -12,6 +12,13 @@ from utils.utils import get_timestamp
 # Активные Pyrogram-клиенты: {user_id: Client}
 _active_clients: dict[int, Client] = {}
 
+# Состояние глобального exception handler event loop-а, который мы временно
+# подменяем ради Pyrogram.
+_loop_handler_state = {
+    "loop": None,
+    "previous_handler": None,
+}
+
 # Callback для обработки входящих сообщений (устанавливается из bot.py)
 _on_new_message_callback = None
 
@@ -43,6 +50,52 @@ async def create_client(user_id: int, session_string: str) -> Client:
     return client
 
 
+def _pyrogram_task_exception_handler(loop, context):
+    """Обработчик исключений в asyncio-задачах Pyrogram.
+
+    Pyrogram создаёт внутренние Task-и (handle_updates) которые могут
+    бросать ValueError при получении update-ов из незнакомых supergroup/channel.
+    Логируем как WARNING вместо полного traceback.
+    """
+    exception = context.get("exception")
+    if isinstance(exception, ValueError) and "Peer id invalid" in str(exception):
+        print(f"{get_timestamp()} [PYROGRAM] WARNING: {exception} (ignored)")
+        return
+
+    # Для всех остальных исключений делегируем предыдущему handler-у,
+    # если он был настроен, иначе используем стандартный.
+    previous_handler = _loop_handler_state["previous_handler"]
+    if previous_handler:
+        previous_handler(loop, context)
+    else:
+        loop.default_exception_handler(context)
+
+
+def _install_pyrogram_exception_handler(loop) -> None:
+    """Устанавливает обёртку над loop exception handler один раз."""
+    if (
+        _loop_handler_state["loop"] is loop
+        and loop.get_exception_handler() is _pyrogram_task_exception_handler
+    ):
+        return
+
+    _loop_handler_state["previous_handler"] = loop.get_exception_handler()
+    loop.set_exception_handler(_pyrogram_task_exception_handler)
+    _loop_handler_state["loop"] = loop
+
+
+def _restore_pyrogram_exception_handler(loop) -> None:
+    """Восстанавливает предыдущий loop exception handler."""
+    if _loop_handler_state["loop"] is not loop:
+        return
+
+    if loop.get_exception_handler() is _pyrogram_task_exception_handler:
+        loop.set_exception_handler(_loop_handler_state["previous_handler"])
+
+    _loop_handler_state["previous_handler"] = None
+    _loop_handler_state["loop"] = None
+
+
 async def start_listening(user_id: int, session_string: str) -> bool:
     """Запускает Pyrogram-клиент и слушатель входящих сообщений.
 
@@ -58,6 +111,11 @@ async def start_listening(user_id: int, session_string: str) -> bool:
 
     try:
         client = await create_client(user_id, session_string)
+        loop = asyncio.get_running_loop()
+
+        # Подавляем ValueError: Peer id invalid из внутренних задач Pyrogram
+        _install_pyrogram_exception_handler(loop)
+
         await client.start()
 
         # Хендлер входящих сообщений (только личные чаты, не от себя)
@@ -81,6 +139,12 @@ async def start_listening(user_id: int, session_string: str) -> bool:
         return True
 
     except Exception as e:
+        try:
+            loop = asyncio.get_running_loop()
+            if not _active_clients:
+                _restore_pyrogram_exception_handler(loop)
+        except RuntimeError:
+            pass
         print(f"{get_timestamp()} [PYROGRAM] ERROR starting client for user {user_id}: {e}")
         return False
 
@@ -92,8 +156,11 @@ async def stop_listening(user_id: int) -> bool:
         return True
 
     try:
+        loop = asyncio.get_running_loop()
         await client.stop()
         _active_clients.pop(user_id, None)
+        if not _active_clients:
+            _restore_pyrogram_exception_handler(loop)
         print(f"{get_timestamp()} [PYROGRAM] Stopped listening for user {user_id}")
         return True
     except Exception as e:
@@ -305,5 +372,9 @@ async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | Non
         return None
 
     except Exception as e:
-        print(f"{get_timestamp()} [PYROGRAM] ERROR transcribing voice in chat {chat_id}: {e}")
+        error_str = str(e)
+        if "PREMIUM_ACCOUNT_REQUIRED" in error_str:
+            print(f"{get_timestamp()} [PYROGRAM] WARNING: voice transcription requires Premium in chat {chat_id}")
+        else:
+            print(f"{get_timestamp()} [PYROGRAM] ERROR transcribing voice in chat {chat_id}: {e}")
         return None
