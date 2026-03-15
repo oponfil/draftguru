@@ -6,7 +6,9 @@ import pytest
 from telegram.ext import ApplicationHandlerStop
 
 from handlers.pyrogram_handlers import (
+    _auto_reply_tasks,
     _bot_drafts,
+    _bot_draft_echoes,
     _pending_2fa,
     _pending_drafts,
     _poll_qr_login,
@@ -26,11 +28,15 @@ TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"]
 @pytest.fixture(autouse=True)
 def cleanup_handler_state():
     """Очищает глобальное состояние обработчиков между тестами."""
+    _auto_reply_tasks.clear()
     _bot_drafts.clear()
+    _bot_draft_echoes.clear()
     _pending_drafts.clear()
     _pending_2fa.clear()
     yield
+    _auto_reply_tasks.clear()
     _bot_drafts.clear()
+    _bot_draft_echoes.clear()
     _pending_drafts.clear()
     _pending_2fa.clear()
 
@@ -285,11 +291,56 @@ class TestOnPyrogramMessage:
 
     @pytest.mark.asyncio
     async def test_no_text_returns_early(self):
-        """Сообщение без текста → ранний return."""
+        """Сообщение без текста и без голоса → ранний return."""
         message = MagicMock()
         message.text = None
+        message.voice = None
 
         await on_pyrogram_message(123, MagicMock(), message)
+
+    @pytest.mark.asyncio
+    async def test_voice_message_transcribes_and_generates_draft(self):
+        """Голосовое сообщение → транскрипция → черновик."""
+        message = MagicMock()
+        message.text = None
+        message.voice = MagicMock()  # есть голосовое
+        message.id = 42
+        message.date = "2026-03-15T10:00:00Z"
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.from_user.first_name = "Test"
+        message.from_user.last_name = "User"
+        message.from_user.username = "testuser"
+        message.from_user.language_code = "ru"
+        message.from_user.is_premium = True
+        message.chat = MagicMock()
+        message.chat.id = 456
+        message.chat.type = MagicMock(value="private")
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user_settings", new_callable=AsyncMock, return_value={}), \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en"}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
+            mock_pc.transcribe_voice = AsyncMock(return_value="Привет, как дела?")
+            mock_pc.read_chat_history = AsyncMock(return_value=[])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_gen.return_value = "Всё отлично!"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        mock_pc.transcribe_voice.assert_called_once_with(123, 456, 42)
+        mock_gen.assert_called_once()
+        history_arg = mock_gen.await_args.args[0]
+        assert history_arg == [{
+            "role": "other",
+            "text": "Привет, как дела?",
+            "date": "2026-03-15T10:00:00Z",
+            "name": "Test",
+            "last_name": "User",
+            "username": "testuser",
+        }]
 
     @pytest.mark.asyncio
     async def test_outgoing_returns_early(self):
@@ -441,7 +492,7 @@ class TestOnPyrogramDraft:
     @pytest.mark.asyncio
     async def test_ignores_bot_draft(self):
         """Черновик, установленный ботом → игнорируется."""
-        _bot_drafts[(123, 456)] = TYPING_TEXT
+        _bot_draft_echoes[(123, 456)] = TYPING_TEXT
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
             mock_pc.set_draft = AsyncMock()
@@ -454,13 +505,34 @@ class TestOnPyrogramDraft:
     @pytest.mark.asyncio
     async def test_empty_draft_clears_pending(self):
         """Пустой черновик → очищает pending."""
+        task = MagicMock()
+        task.done.return_value = False
         _pending_drafts[(123, 456)] = "some text"
+        _bot_drafts[(123, 456)] = "AI ответ"
+        _auto_reply_tasks[(123, 456)] = task
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
             mock_pc.set_draft = AsyncMock()
             await on_pyrogram_draft(123, 456, "")
 
         assert (123, 456) not in _pending_drafts
+        assert (123, 456) not in _bot_drafts
+        assert (123, 456) not in _auto_reply_tasks
+        task.cancel.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_ignores_bot_echo_without_clearing_auto_reply_draft(self):
+        """Echo от set_draft не должен удалять AI-черновик, ожидающий автоответа."""
+        _bot_drafts[(123, 456)] = "AI ответ"
+        _bot_draft_echoes[(123, 456)] = "AI ответ"
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
+            mock_pc.set_draft = AsyncMock()
+            await on_pyrogram_draft(123, 456, "AI ответ")
+
+        assert _bot_drafts[(123, 456)] == "AI ответ"
+        assert (123, 456) not in _bot_draft_echoes
+        mock_pc.set_draft.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_processes_user_draft(self):
@@ -471,6 +543,7 @@ class TestOnPyrogramDraft:
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
              patch("handlers.pyrogram_handlers.generate_response", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.get_user_settings", new_callable=AsyncMock, return_value={}), \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en"}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
             mock_pc.read_chat_history = AsyncMock(return_value=[

@@ -20,8 +20,11 @@ from utils.utils import get_timestamp
 
 # ====== Системные сообщения (на английском, переводятся для пользователя) ======
 SYSTEM_MESSAGES = {
+    # — General —
     "greeting": "👋 Hey! I'm TalkGuru — a bot that writes draft replies for you.\n\n1. 🔌 Connect your account via /connect (QR code).\n2. 🦉 When someone messages you — I automatically compose a draft reply in the input field.\n3. ✏️ Write an instruction in the draft — I'll rewrite it as soon as you leave the chat.",
     "error": "⚠️ An error occurred. Please try again later.",
+
+    # — Connect / Disconnect —
     "connect_success": "✅ Account connected! I'll now suggest replies to your incoming messages as drafts.",
     "connect_error": "🔌 Failed to connect your account. Please try again with /connect.",
     "connect_already": "✅ Your account is already connected.",
@@ -33,13 +36,22 @@ SYSTEM_MESSAGES = {
     "connect_2fa_error": "🔐 Failed to complete 2FA login. Please try /connect again.",
     "connect_2fa_prompt": "🔐 Your account has a cloud password (2FA). Please send your cloud password as a message.\n\n⚠️ The password will be used once for login and will NOT be stored:",
     "connect_2fa_wrong_password": "❌ Wrong password. Please try again — send your cloud password as a message:",
+
+    # — Status —
     "status_connected": "✅ Your account is connected. I'm suggesting replies to your incoming messages as drafts.",
     "status_disconnected": "🔌 Your account is not connected. Use /connect to connect.",
+
+    # — Menu —
     "menu_start": "Start",
     "menu_connect": "Connect account",
     "menu_disconnect": "Disconnect account",
     "menu_status": "Connection status",
+    "menu_settings": "Settings",
+
+    # — Drafts —
     "draft_typing": "🦉 is typing...",
+
+    # — Settings —
     "settings_title": "⚙️ Settings\nTap buttons to change.",
     "settings_drafts_on": "✏️ Drafts: ✅ ON",
     "settings_drafts_off": "✏️ Drafts: ❌ OFF",
@@ -50,7 +62,12 @@ SYSTEM_MESSAGES = {
     "settings_prompt_enter": f"📝 Send your custom prompt as a message. It will be added to the AI system prompt for all chats.\n\n⚠️ Max length: {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_truncated": f"⚠️ Prompt was too long, so I saved only the first {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_saved": "✅ Custom prompt saved!",
-    "menu_settings": "Settings",
+    "settings_auto_off": "⏰ Auto-reply: OFF",
+    "settings_auto_1m": "⏰ Auto-reply: 1 min",
+    "settings_auto_5m": "⏰ Auto-reply: 5 min",
+    "settings_auto_15m": "⏰ Auto-reply: 15 min",
+    "settings_auto_1h": "⏰ Auto-reply: 1 hour",
+    "settings_auto_24h": "⏰ Auto-reply: 24 hours",
 }
 
 

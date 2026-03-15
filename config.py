@@ -71,3 +71,17 @@ BOT_READ_TIMEOUT = 30  # Таймаут чтения ответа от Telegram 
 
 # ====== НАСТРОЙКИ ======
 CUSTOM_PROMPT_MAX_LENGTH = 900  # Макс. длина пользовательского промпта (символы)
+
+# ====== ГОЛОСОВЫЕ СООБЩЕНИЯ ======
+VOICE_TRANSCRIPTION_TIMEOUT = 60  # Таймаут ожидания транскрипции (секунды)
+
+# ====== АВТООТВЕТ ======
+# {секунды: ключ сообщения} — None = выключено (по умолчанию)
+AUTO_REPLY_OPTIONS: dict[int | None, str] = {
+    None: "settings_auto_off",
+    60: "settings_auto_1m",
+    300: "settings_auto_5m",
+    900: "settings_auto_15m",
+    3600: "settings_auto_1h",
+    86400: "settings_auto_24h",
+}

@@ -5,19 +5,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from handlers.settings_handler import _build_settings_text, on_settings, on_settings_callback
+from system_messages import SYSTEM_MESSAGES
 
-MESSAGES = {
-    "settings_title": "⚙️ Settings\nTap buttons to change.",
-    "settings_drafts_on": "✏️ Drafts: ✅ ON",
-    "settings_drafts_off": "✏️ Drafts: ❌ OFF",
-    "settings_model_free": "🤖 Model: FREE",
-    "settings_model_pro": "🤖 Model: ⭐ PRO",
-    "settings_prompt_set": "📝 Prompt: ✅ set (tap to clear)",
-    "settings_prompt_empty": "📝 Prompt: not set",
-    "settings_prompt_enter": "📝 Send your custom prompt.",
-    "settings_prompt_saved": "✅ Custom prompt saved!",
-}
-
+MESSAGES = SYSTEM_MESSAGES
 TITLE = MESSAGES["settings_title"]
 
 
@@ -55,10 +45,11 @@ class TestOnSettings:
 
         keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         buttons = keyboard.inline_keyboard
-        assert len(buttons) == 3
+        assert len(buttons) == 4
         assert buttons[0][0].text == "✏️ Drafts: ✅ ON"
         assert buttons[1][0].text == "🤖 Model: FREE"
         assert buttons[2][0].text == "📝 Prompt: not set"
+        assert buttons[3][0].text == "⏰ Auto-reply: OFF"
 
     @pytest.mark.asyncio
     async def test_shows_custom_settings(self, mock_update, mock_context):
@@ -149,3 +140,18 @@ class TestOnSettingsCallback:
             await on_settings_callback(mock_callback_update, mock_context)
 
         mock_callback_update.callback_query.edit_message_text.assert_called_once_with(text="Ошибка")
+
+    @pytest.mark.asyncio
+    async def test_cycles_auto_reply(self, mock_callback_update, mock_context):
+        """Переключает auto_reply по кругу: None → 60 → 300 → ..."""
+        mock_callback_update.callback_query.data = "settings:auto_reply"
+
+        with patch("handlers.settings_handler.get_user_settings", new_callable=AsyncMock,
+                    side_effect=[{}, {"auto_reply": 60}]), \
+             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update, \
+             patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
+            await on_settings_callback(mock_callback_update, mock_context)
+
+        mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"auto_reply": 60})
+        keyboard = mock_callback_update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
+        assert keyboard.inline_keyboard[3][0].text == "⏰ Auto-reply: 1 min"

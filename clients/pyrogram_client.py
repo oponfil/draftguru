@@ -1,9 +1,11 @@
 # clients/pyrogram_client.py — Управление Pyrogram-сессиями пользователей
 
+import asyncio
+
 from pyrogram import Client, filters, raw
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
-from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, DEBUG_PRINT
+from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT
 from utils.utils import get_timestamp
 
 
@@ -215,3 +217,93 @@ async def set_draft(user_id: int, chat_id: int, text: str) -> bool:
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR setting draft in chat {chat_id}: {e}")
         return False
+
+
+async def send_message(user_id: int, chat_id: int, text: str) -> bool:
+    """Отправляет сообщение от имени пользователя через Pyrogram.
+
+    Args:
+        user_id: Telegram user ID
+        chat_id: ID чата
+        text: Текст сообщения
+
+    Returns:
+        True если отправка успешна
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return False
+
+    try:
+        await client.send_message(chat_id, text)
+
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [PYROGRAM] Message sent in chat {chat_id} for user {user_id}")
+        return True
+
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR sending message in chat {chat_id}: {e}")
+        return False
+
+
+async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | None:
+    """Транскрибирует голосовое сообщение через Telegram Premium TranscribeAudio.
+
+    Args:
+        user_id: Telegram user ID
+        chat_id: ID чата
+        msg_id: ID сообщения с голосовым
+
+    Returns:
+        Текст транскрипции или None при ошибке
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return None
+
+    try:
+        peer = await client.resolve_peer(chat_id)
+        result = await client.invoke(
+            raw.functions.messages.TranscribeAudio(
+                peer=peer,
+                msg_id=msg_id,
+            )
+        )
+
+        # Если транскрипция готова сразу
+        if not result.pending:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [PYROGRAM] Transcribed voice in chat {chat_id}: {len(result.text)} chars")
+            return result.text or None
+
+        # Ждём UpdateTranscribedAudio через polling
+        final_text = result.text or ""
+
+        deadline = asyncio.get_event_loop().time() + VOICE_TRANSCRIPTION_TIMEOUT
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(1)
+            # Повторяем запрос — Telegram вернёт обновлённый результат
+            try:
+                result = await client.invoke(
+                    raw.functions.messages.TranscribeAudio(
+                        peer=peer,
+                        msg_id=msg_id,
+                    )
+                )
+                if not result.pending:
+                    final_text = result.text or ""
+                    break
+                final_text = result.text or final_text
+            except Exception:
+                break
+
+        if final_text:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [PYROGRAM] Transcribed voice in chat {chat_id}: {len(final_text)} chars")
+            return final_text
+
+        return None
+
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR transcribing voice in chat {chat_id}: {e}")
+        return None

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import io
+import random
 import traceback
 
 import qrcode
@@ -448,7 +449,19 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -> None:
     """Вызывается при новом входящем сообщении в любом чате пользователя."""
-    if not message.text:
+    text = message.text
+    transcribed_voice = False
+
+    # Голосовое сообщение → транскрибируем
+    if not text and message.voice:
+        text = await pyrogram_client.transcribe_voice(
+            user_id, message.chat.id, message.id
+        )
+        if text:
+            transcribed_voice = True
+            print(f"{get_timestamp()} [PYROGRAM] Voice transcribed for user {user_id} in chat {message.chat.id}: {len(text)} chars")
+
+    if not text:
         return
 
     # Игнорируем исходящие сообщения (наши собственные) и сообщения от ботов
@@ -462,6 +475,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         return
 
     chat_id = message.chat.id
+    key = (user_id, chat_id)
 
     # Читаем настройки пользователя
     user_settings = await get_user_settings(user_id)
@@ -470,19 +484,33 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         sender = message.from_user.first_name if message.from_user else "Unknown"
         print(
             f"{get_timestamp()} [PYROGRAM] New message for user {user_id} "
-            f"from {sender} in chat {chat_id}: {len(message.text)} chars"
+            f"from {sender} in chat {chat_id}: {len(text)} chars"
         )
 
     try:
+        # Новый входящий сбрасывает предыдущий автоответ для этого чата.
+        _cancel_auto_reply(key)
+        _bot_drafts.pop(key, None)
+
         # Показываем пользователю что бот работает
         user = await get_user(user_id)
         lang = user.get("language_code") if user else None
         probe_text = await get_system_message(lang, "draft_typing")
-        _bot_drafts[(user_id, chat_id)] = probe_text
+        _bot_draft_echoes[key] = probe_text
         await pyrogram_client.set_draft(user_id, chat_id, probe_text)
 
         # Читаем историю чата
         history = await pyrogram_client.read_chat_history(user_id, chat_id)
+        if transcribed_voice:
+            sender = message.from_user
+            history.append({
+                "role": "other",
+                "text": text,
+                "date": message.date,
+                "name": sender.first_name if sender else None,
+                "last_name": sender.last_name if sender else None,
+                "username": sender.username if sender else None,
+            })
         if not history:
             return
 
@@ -507,10 +535,16 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
 
         # Устанавливаем черновик с AI-ответом
         ai_text = reply_text.strip()
-        _bot_drafts[(user_id, chat_id)] = ai_text
+        _bot_drafts[key] = ai_text
+        _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply set as draft for user {user_id} in chat {chat_id}")
+
+        # Запускаем таймер автоответа
+        auto_reply = user_settings.get("auto_reply")
+        if auto_reply:
+            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
 
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR processing message for user {user_id}: {e}")
@@ -519,8 +553,54 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
 # Тексты черновиков, установленные ботом: {(user_id, chat_id): text}
 _bot_drafts: dict[tuple[int, int], str] = {}
 
+# Эхо от set_draft, которое нужно один раз проигнорировать: {(user_id, chat_id): text}
+_bot_draft_echoes: dict[tuple[int, int], str] = {}
+
 # Ожидающие проверки черновики пользователя: {(user_id, chat_id): instruction}
 _pending_drafts: dict[tuple[int, int], str] = {}
+
+# Активные таймеры автоответа: {(user_id, chat_id): asyncio.Task}
+_auto_reply_tasks: dict[tuple[int, int], asyncio.Task] = {}
+
+
+def _cancel_auto_reply(key: tuple[int, int]) -> None:
+    """Отменяет активный таймер автоответа для чата."""
+    task = _auto_reply_tasks.pop(key, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _schedule_auto_reply(user_id: int, chat_id: int, text: str, base_seconds: int) -> None:
+    """Запускает таймер автоответа, отменяя предыдущий."""
+    key = (user_id, chat_id)
+    _cancel_auto_reply(key)
+    task = asyncio.create_task(_auto_reply_worker(user_id, chat_id, text, base_seconds))
+    _auto_reply_tasks[key] = task
+
+
+async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds: int) -> None:
+    """Ждёт таймаут и отправляет сообщение, если черновик не изменился."""
+    key = (user_id, chat_id)
+    try:
+        delay = base_seconds + random.uniform(0, base_seconds)
+        await asyncio.sleep(delay)
+
+        # Проверяем: черновик всё ещё наш?
+        if _bot_drafts.get(key) != text:
+            return
+
+        sent = await pyrogram_client.send_message(user_id, chat_id, text)
+        if sent:
+            _bot_drafts.pop(key, None)
+            _bot_draft_echoes.pop(key, None)
+            print(f"{get_timestamp()} [AUTO-REPLY] Sent for user {user_id} in chat {chat_id} after {delay:.0f}s")
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"{get_timestamp()} [AUTO-REPLY] ERROR for user {user_id} in chat {chat_id}: {e}")
+    finally:
+        _auto_reply_tasks.pop(key, None)
 
 
 async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None:
@@ -528,14 +608,16 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
     key = (user_id, chat_id)
 
     # Игнорируем черновики, установленные ботом (пробел или AI-ответ)
-    bot_text = _bot_drafts.get(key)
-    if bot_text is not None and draft_text == bot_text:
-        _bot_drafts.pop(key, None)  # Одноразовая проверка
+    bot_echo_text = _bot_draft_echoes.get(key)
+    if bot_echo_text is not None and draft_text == bot_echo_text:
+        _bot_draft_echoes.pop(key, None)
         return
 
     # Пустой черновик — ничего не делаем
     if not draft_text:
         _pending_drafts.pop(key, None)
+        _bot_drafts.pop(key, None)
+        _cancel_auto_reply(key)
         return
 
     # Проверяем настройку drafts_enabled
@@ -547,6 +629,8 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
     # Пользователь набрал текст — запоминаем как инструкцию
     instruction = draft_text
+    _cancel_auto_reply(key)
+    _bot_drafts.pop(key, None)
 
     if DEBUG_PRINT:
         print(
@@ -559,7 +643,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
     lang = user.get("language_code") if user else None
     probe_text = await get_system_message(lang, "draft_typing")
     _pending_drafts[key] = instruction
-    _bot_drafts[key] = probe_text
+    _bot_draft_echoes[key] = probe_text
     await pyrogram_client.set_draft(user_id, chat_id, probe_text)
 
     # Ждём DRAFT_PROBE_DELAY секунд
@@ -621,9 +705,15 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         # Устанавливаем черновик с AI-ответом и запоминаем
         ai_text = response.strip()
         _bot_drafts[key] = ai_text
+        _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
         print(f"{get_timestamp()} [DRAFT] Response set as draft for user {user_id} in chat {chat_id}")
+
+        # Запускаем таймер автоответа
+        auto_reply = user_settings.get("auto_reply")
+        if auto_reply:
+            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
 
     except Exception as e:
         print(f"{get_timestamp()} [DRAFT] ERROR processing draft for user {user_id}: {e}")

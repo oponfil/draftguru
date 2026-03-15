@@ -216,3 +216,90 @@ class TestHandleDraftUpdate:
 
         pyrogram_client._on_draft_callback = None
 
+
+class TestTranscribeVoice:
+    """Тесты для transcribe_voice()."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_client(self):
+        """Без активного клиента → None."""
+        pyrogram_client._active_clients.pop(123, None)
+
+        result = await pyrogram_client.transcribe_voice(123, 456, 1)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_successful_transcription(self):
+        """Успешная мгновенная транскрипция."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+
+        transcription_result = MagicMock()
+        transcription_result.pending = False
+        transcription_result.text = "Привет, как дела?"
+        mock_client.invoke = AsyncMock(return_value=transcription_result)
+
+        pyrogram_client._active_clients[123] = mock_client
+
+        result = await pyrogram_client.transcribe_voice(123, 456, 1)
+
+        assert result == "Привет, как дела?"
+        mock_client.invoke.assert_called_once()
+
+        pyrogram_client._active_clients.pop(123, None)
+
+    @pytest.mark.asyncio
+    async def test_returns_none_on_error(self):
+        """При ошибке → None."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(side_effect=Exception("API error"))
+
+        pyrogram_client._active_clients[123] = mock_client
+
+        result = await pyrogram_client.transcribe_voice(123, 456, 1)
+
+        assert result is None
+
+        pyrogram_client._active_clients.pop(123, None)
+
+
+class TestSendMessage:
+    """Тесты для send_message()."""
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_no_client(self):
+        """Без активного клиента → False."""
+        pyrogram_client._active_clients.pop(123, None)
+
+        result = await pyrogram_client.send_message(123, 456, "Hello")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_successful_send(self):
+        """Успешная отправка."""
+        mock_client = AsyncMock()
+
+        pyrogram_client._active_clients[123] = mock_client
+
+        result = await pyrogram_client.send_message(123, 456, "Hello")
+
+        assert result is True
+        mock_client.send_message.assert_called_once_with(456, "Hello")
+
+        pyrogram_client._active_clients.pop(123, None)
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_error(self):
+        """При ошибке → False."""
+        mock_client = AsyncMock()
+        mock_client.send_message = AsyncMock(side_effect=Exception("Send failed"))
+
+        pyrogram_client._active_clients[123] = mock_client
+
+        result = await pyrogram_client.send_message(123, 456, "Hello")
+
+        assert result is False
+
+        pyrogram_client._active_clients.pop(123, None)
