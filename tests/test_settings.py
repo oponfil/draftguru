@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from config import STYLE_OPTIONS
 from handlers.settings_handler import _build_settings_text, _format_tz_offset, on_settings, on_settings_callback
 from system_messages import SYSTEM_MESSAGES
 
@@ -171,18 +172,23 @@ class TestOnSettingsCallback:
 
     @pytest.mark.asyncio
     async def test_cycles_style(self, mock_callback_update, mock_context):
-        """Переключает style по кругу: None → flirt → business → ..."""
+        """Переключает style по кругу: None → следующий по STYLE_OPTIONS."""
         mock_callback_update.callback_query.data = "settings:style"
 
+        options = list(STYLE_OPTIONS)
+        next_style = options[1]  # первый после None
+        expected_msg_key = STYLE_OPTIONS[next_style]
+        expected_label = MESSAGES[expected_msg_key]
+
         with patch("handlers.settings_handler.get_user_settings", new_callable=AsyncMock,
-                    side_effect=[{}, {"style": "flirt"}]), \
+                    side_effect=[{}, {"style": next_style}]), \
              patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update, \
              patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
             await on_settings_callback(mock_callback_update, mock_context)
 
-        mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"style": "flirt"})
+        mock_update.assert_called_once_with(mock_callback_update.effective_user.id, {"style": next_style})
         keyboard = mock_callback_update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
-        assert keyboard.inline_keyboard[3][0].text == "💋 Style: Flirt Guru"
+        assert keyboard.inline_keyboard[3][0].text == expected_label
 
     @pytest.mark.asyncio
     async def test_cycles_timezone(self, mock_callback_update, mock_context):
