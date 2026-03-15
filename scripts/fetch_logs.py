@@ -23,7 +23,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
+
 
 # Корень проекта
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -85,23 +85,6 @@ def get_railway_token() -> str | None:
     return token
 
 
-def link_project(cli_cmd: str, project_id: str, token: str, workdir: Path) -> bool:
-    """Привязывает Railway CLI к проекту по ID в изолированной директории."""
-    env = {**os.environ, "RAILWAY_TOKEN": token}
-    try:
-        result = subprocess.run(
-            [cli_cmd, "link", "--project", project_id],
-            capture_output=True, text=True, timeout=10, env=env, cwd=workdir,
-        )
-        if result.returncode == 0:
-            return True
-
-        stderr = result.stderr.strip()
-        print(f"⚠️  WARNING: Не удалось привязать проект: {stderr or 'unknown error'}")
-        return False
-    except Exception as e:
-        print(f"⚠️  WARNING: Не удалось привязать проект: {e}")
-        return False
 
 
 def build_logs_command(
@@ -132,7 +115,7 @@ def build_logs_command(
 def fetch_logs(
     cli_cmd: str,
     token: str,
-    workdir: Path,
+    project_id: str | None,
     service: str | None,
     lines: int,
     filter_query: str | None,
@@ -142,6 +125,8 @@ def fetch_logs(
     cmd = build_logs_command(cli_cmd, service, lines, filter_query, since)
 
     env = {**os.environ, "RAILWAY_TOKEN": token}
+    if project_id:
+        env["RAILWAY_PROJECT_ID"] = project_id
     timeout_sec = 120 if lines >= RAILWAY_LOG_LIMIT else 30
 
     print(f"⏳ Запрос: {' '.join(cmd)}")
@@ -149,7 +134,7 @@ def fetch_logs(
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, env=env,
-            timeout=timeout_sec, encoding="utf-8", errors="replace", cwd=workdir,
+            timeout=timeout_sec, encoding="utf-8", errors="replace",
         )
     except FileNotFoundError:
         print("❌ Railway CLI не найден.")
@@ -168,7 +153,7 @@ def fetch_logs(
             try:
                 result = subprocess.run(
                     cmd_retry, capture_output=True, text=True, env=env,
-                    timeout=timeout_sec, encoding="utf-8", errors="replace", cwd=workdir,
+                    timeout=timeout_sec, encoding="utf-8", errors="replace",
                 )
                 if result.returncode == 0:
                     return result.stdout
@@ -229,17 +214,8 @@ def main() -> None:
     if not token:
         sys.exit(1)
 
-    # Привязываем проект
+    # Параметры проекта
     project_id = os.getenv("RAILWAY_PROJECT_ID")
-    workdir = PROJECT_ROOT
-    temp_dir: TemporaryDirectory[str] | None = None
-    if project_id:
-        temp_dir = TemporaryDirectory(prefix="talkguru-railway-")
-        workdir = Path(temp_dir.name)
-        if not link_project(cli_cmd, project_id, token, workdir):
-            temp_dir.cleanup()
-            sys.exit(1)
-
     service_name = os.getenv("RAILWAY_SERVICE_NAME")
     lines_count = RAILWAY_LOG_LIMIT if args.all else args.lines
 
@@ -248,11 +224,7 @@ def main() -> None:
         print(f"🔍 Фильтр: {args.filter}")
 
     # Скачиваем логи
-    try:
-        logs = fetch_logs(cli_cmd, token, workdir, service_name, lines_count, args.filter, args.since)
-    finally:
-        if temp_dir is not None:
-            temp_dir.cleanup()
+    logs = fetch_logs(cli_cmd, token, project_id, service_name, lines_count, args.filter, args.since)
     if not logs or not logs.strip():
         print("📭 Логи пусты.")
         sys.exit(1)
