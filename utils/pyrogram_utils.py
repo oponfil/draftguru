@@ -4,6 +4,7 @@ from telegram.ext import Application
 
 from clients import pyrogram_client
 from database.users import get_users_with_sessions
+from utils.bot_utils import update_user_menu
 from utils.utils import get_timestamp
 
 
@@ -24,6 +25,9 @@ async def restore_sessions(app: Application) -> None:
                 ok = await pyrogram_client.start_listening(user_id, session_string)
                 if ok:
                     count += 1
+                    # Устанавливаем per-user меню с disconnect
+                    language_code = row.get("language_code")
+                    await update_user_menu(app.bot, user_id, language_code, is_connected=True)
                 else:
                     failed_user_ids.append(user_id)
 

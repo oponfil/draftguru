@@ -19,7 +19,7 @@ class TestOnStart:
              patch("handlers.bot_handlers.update_tg_rating", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.extract_rating_from_chat", return_value=None), \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Hi!"), \
-             patch("handlers.bot_handlers.update_menu_language", new_callable=AsyncMock):
+             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock):
 
             await on_start(mock_update, mock_context)
 
@@ -35,7 +35,7 @@ class TestOnStart:
              patch("handlers.bot_handlers.update_tg_rating", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.extract_rating_from_chat", return_value=None), \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Привет!"), \
-             patch("handlers.bot_handlers.update_menu_language", new_callable=AsyncMock):
+             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock):
 
             await on_start(mock_update, mock_context)
 
@@ -48,25 +48,28 @@ class TestOnStart:
              patch("handlers.bot_handlers.update_tg_rating", new_callable=AsyncMock) as mock_rating, \
              patch("handlers.bot_handlers.extract_rating_from_chat", return_value=5), \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Hi!"), \
-             patch("handlers.bot_handlers.update_menu_language", new_callable=AsyncMock):
+             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock):
 
             await on_start(mock_update, mock_context)
 
         mock_rating.assert_called_once_with(mock_update.effective_user.id, 5)
 
     @pytest.mark.asyncio
-    async def test_updates_menu_language(self, mock_update, mock_context):
-        """Устанавливает меню команд на языке пользователя."""
+    async def test_updates_user_menu(self, mock_update, mock_context):
+        """Устанавливает меню команд с учётом статуса подключения."""
         with patch("handlers.bot_handlers.upsert_user", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.update_tg_rating", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.extract_rating_from_chat", return_value=None), \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Hi!"), \
-             patch("handlers.bot_handlers.update_menu_language", new_callable=AsyncMock) as mock_menu:
+             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock) as mock_menu, \
+             patch("handlers.bot_handlers.pyrogram_client") as mock_pc:
+            mock_pc.is_active.return_value = False
 
             await on_start(mock_update, mock_context)
 
         mock_menu.assert_called_once_with(
-            mock_context.bot, mock_update.effective_user.language_code
+            mock_context.bot, mock_update.effective_user.id,
+            mock_update.effective_user.language_code, False
         )
 
 
@@ -107,6 +110,7 @@ class TestOnText:
 
         with patch("handlers.bot_handlers.MAX_CONTEXT_MESSAGES", 2), \
              patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.get_user_settings", new_callable=AsyncMock, return_value={}), \
              patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Ответ") as mock_generate:
             await on_text(mock_update, mock_context)
 
@@ -147,6 +151,19 @@ class TestOnText:
 
         mock_update_msg.assert_called_once_with(mock_update.effective_user.id)
 
+    @pytest.mark.asyncio
+    async def test_prompt_save_failure_sends_error_and_keeps_waiting_state(self, mock_update, mock_context):
+        """При сбое сохранения промпта не показывает ложный успех."""
+        mock_update.message.text = "Будь короче"
+        mock_context.user_data["awaiting_prompt"] = True
+
+        with patch("handlers.bot_handlers.update_user_settings", new_callable=AsyncMock, return_value=False), \
+             patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Ошибка"):
+            await on_text(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once_with("Ошибка")
+        assert mock_context.user_data["awaiting_prompt"] is True
+
 
 class TestOnError:
     """Тесты для on_error()."""
@@ -186,10 +203,11 @@ class TestMain:
         with patch("bot.Application.builder", return_value=fake_builder), \
              patch("bot.CommandHandler", side_effect=command_handler_stub), \
              patch("bot.MessageHandler", side_effect=message_handler_stub), \
+             patch("bot.CallbackQueryHandler", return_value=MagicMock()), \
              patch("bot.pyrogram_client") as mock_pc:
             bot_module.main()
 
-        assert len(command_handlers) == 4
+        assert len(command_handlers) == 5
         assert len(message_handlers) == 2
         assert all(kwargs["filters"] is bot_module.PRIVATE_ONLY_FILTER for _, kwargs in command_handlers)
         assert "ChatType.PRIVATE" in repr(message_handlers[0][0][0])

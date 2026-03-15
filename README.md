@@ -15,7 +15,7 @@
 ### 1. Клонировать и установить зависимости
 
 ```bash
-git clone https://github.com/your-username/TalkGuru.git
+git clone https://github.com/oponfil/talkguru.git
 cd TalkGuru
 pip install -r requirements.txt
 ```
@@ -46,7 +46,11 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Важно: на продакшене `LOG_TO_FILE` должен оставаться выключенным, потому что в лог будут записываться полные prompt'ы, история переписки и ответы модели.
 
 Для локализации системных сообщений:
-- `SYSTEM_MESSAGE_TRANSLATION_TIMEOUT` — таймаут запроса перевода (секунды, по умолчанию `30`)
+- `SYSTEM_MESSAGE_TRANSLATION_TIMEOUT` — таймаут запроса перевода (секунды, по умолчанию `60`)
+- `SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS` — TTL английского fallback-кэша при сбое перевода (секунды, по умолчанию `300`)
+
+Дополнительно:
+- `BOT_READ_TIMEOUT` — таймаут чтения ответа от Telegram Bot API (секунды, по умолчанию `30`)
 
 Примечание по логике перевода: сообщения кэшируются по языку. При временной ошибке перевода бот использует английский fallback и кэширует его на 5 минут, после чего автоматически пробует перевод снова.
 
@@ -68,6 +72,9 @@ python bot.py
 | `/status` | Статус подключения |
 | `/connect` | Подключить Telegram-аккаунт через QR-код (поддерживает 2FA) |
 | `/disconnect` | Отключить аккаунт (идемпотентно: останавливает listener и очищает сессию в БД) |
+| `/settings` | Настройки: включение/выключение драфтов, выбор модели (FREE/PRO), пользовательский промпт |
+
+Меню команд динамическое: `/connect` и `/disconnect` показываются в зависимости от статуса подключения.
 
 При `2FA` бот попросит cloud password отдельным сообщением в личке и сразу удалит его после попытки логина.
 
@@ -96,13 +103,14 @@ pytest tests/ -v
 ## Архитектура
 
 - **bot.py** — Точка входа: регистрация обработчиков и запуск бота
-- **handlers/** — Обработчики команд (`bot_handlers.py` — `/start`, `on_text`) и событий Pyrogram (`pyrogram_handlers.py` — `/connect`, `on_pyrogram_message`, `on_pyrogram_draft`)
+- **handlers/** — Обработчики команд (`bot_handlers.py` — `/start`, `on_text`; `settings_handler.py` — `/settings`) и событий Pyrogram (`pyrogram_handlers.py` — `/connect`, `on_pyrogram_message`, `on_pyrogram_draft`)
 - **config.py** — Все константы и переменные окружения
-- **prompts.py** — Все промпты для ИИ
+- **prompts.py** — Все промпты для ИИ (`build_reply_prompt`, `build_draft_prompt`)
 - **system_messages.py** — Системные сообщения с переводом на язык пользователя
 - **clients/** — API-клиенты (`x402gate`, `pyrogram_client`)
-- **database/** — Запросы к Supabase (`upsert_user`, `get_user`, `save_session`)
+- **database/** — Запросы к Supabase (`upsert_user`, `get_user`, `save_session`, `update_user_settings`)
 - **utils/** — Утилиты (`bot_utils`, `pyrogram_utils`, `telegram_rating`, `utils`)
+- **migrations/** — SQL-миграции
 - **tests/** — Unit-тесты (pytest)
 
 ## Стек

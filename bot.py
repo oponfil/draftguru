@@ -15,7 +15,7 @@ logging.getLogger("telegram").setLevel(logging.ERROR)
 
 from telegram import BotCommand  # noqa: E402
 from telegram.ext import (  # noqa: E402
-    Application, MessageHandler, CommandHandler,
+    Application, MessageHandler, CommandHandler, CallbackQueryHandler,
     ContextTypes, filters,
 )
 
@@ -27,6 +27,7 @@ from handlers.pyrogram_handlers import (  # noqa: E402
     on_disconnect, on_connect, on_status, handle_2fa_password,
     on_pyrogram_message, on_pyrogram_draft,
 )
+from handlers.settings_handler import on_settings, on_settings_callback  # noqa: E402
 from utils.pyrogram_utils import restore_sessions  # noqa: E402
 
 PRIVATE_ONLY_FILTER = filters.ChatType.PRIVATE
@@ -62,6 +63,8 @@ def main() -> None:
     app.add_handler(CommandHandler("connect", on_connect, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CommandHandler("disconnect", on_disconnect, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CommandHandler("status", on_status, filters=PRIVATE_ONLY_FILTER))
+    app.add_handler(CommandHandler("settings", on_settings, filters=PRIVATE_ONLY_FILTER))
+    app.add_handler(CallbackQueryHandler(on_settings_callback, pattern=r"^settings:"))
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, handle_2fa_password), group=0)
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, on_text), group=1)
 
@@ -76,11 +79,11 @@ def main() -> None:
 
 async def post_init(app: Application) -> None:
     """Выполняется после инициализации приложения."""
-    # Меню команд (английский по умолчанию)
+    # Глобальное меню (без connect/disconnect — они устанавливаются per-user)
     await app.bot.set_my_commands([
         BotCommand("status", "Connection status"),
         BotCommand("connect", "Connect account"),
-        BotCommand("disconnect", "Disconnect account"),
+        BotCommand("settings", "Settings"),
     ])
 
     # Восстанавливаем Pyrogram-сессии

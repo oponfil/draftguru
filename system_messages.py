@@ -39,6 +39,16 @@ SYSTEM_MESSAGES = {
     "menu_disconnect": "Disconnect account",
     "menu_status": "Connection status",
     "draft_typing": "🦉 is typing...",
+    "settings_title": "⚙️ Settings",
+    "settings_drafts_on": "✏️ Drafts: ✅ ON",
+    "settings_drafts_off": "✏️ Drafts: ❌ OFF",
+    "settings_model_free": "🤖 Model: FREE",
+    "settings_model_pro": "🤖 Model: ⭐ PRO",
+    "settings_prompt_set": "📝 Prompt: ✅ set (tap to clear)",
+    "settings_prompt_empty": "📝 Prompt: not set",
+    "settings_prompt_enter": "📝 Send your custom prompt as a message. It will be added to the AI system prompt for all chats.",
+    "settings_prompt_saved": "✅ Custom prompt saved!",
+    "menu_settings": "Settings",
 }
 
 

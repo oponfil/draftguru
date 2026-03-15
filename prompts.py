@@ -32,8 +32,13 @@ messages = {messages_json}
 
 # ====== Промпты для генерации ответов ======
 
-# Промпт для генерации ответа по контексту переписки — используется в generate_reply (openrouter.py)
-REPLY_SYSTEM_PROMPT = """\
+def build_reply_prompt(*, custom_prompt: str = "") -> str:
+    """Собирает системный промпт для авто-ответа на входящие сообщения.
+
+    Args:
+        custom_prompt: Пользовательский промпт из настроек
+    """
+    prompt = """\
 You are the user in this conversation.
 You receive the recent chat history between you and another person.
 
@@ -45,14 +50,18 @@ Rules:
 - Respond in the same language as the conversation.
 - Return ONLY the reply text, nothing else.
 """
+    if custom_prompt:
+        prompt += f"\nUSER INSTRUCTIONS:\n{custom_prompt}\n"
+    return prompt
 
 # Промпт для обработки инструкций через черновик — используется в on_pyrogram_draft (pyrogram_handlers.py)
 
-def build_draft_prompt(*, has_history: bool) -> str:
+def build_draft_prompt(*, has_history: bool, custom_prompt: str = "") -> str:
     """Собирает системный промпт для драфт-инструкций.
 
     Args:
         has_history: Есть ли история чата
+        custom_prompt: Пользовательский промпт из настроек
     """
     prompt = """\
 You are the user in this conversation.
@@ -62,7 +71,7 @@ Rules:
 - Vary your replies naturally — sometimes short and dry, sometimes longer and more expressive, just like a real person.
 - Think ahead 2-3 messages like in chess — plan where the conversation should go, but output ONLY the immediate next reply.
 - Always write in first person ("I", "my").
-- NEVER return the same text as the current draft. You MUST always change it.
+- NEVER copy the draft. Rewrite it substantially in your own words.
 - Return ONLY the reply text, nothing else.
 """
     if has_history:
@@ -76,4 +85,6 @@ Rules:
             "- The chat history is empty — this is a cold outreach. Write a compelling, attention-grabbing first message.\n"
             "- Detect the response language from the instruction.\n"
         )
+    if custom_prompt:
+        prompt += f"\nUSER INSTRUCTIONS:\n{custom_prompt}\n"
     return prompt

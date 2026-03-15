@@ -44,7 +44,8 @@ EVM_PRIVATE_KEY = os.getenv("EVM_PRIVATE_KEY", "")
 DEFAULT_LANGUAGE_CODE = "en"  # Язык по умолчанию (ISO 639-1)
 
 # ====== МОДЕЛЬ ИИ ======
-LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель ИИ через OpenRouter
+LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # FREE-модель (по умолчанию)
+LLM_MODEL_PRO = "openai/gpt-5.4"  # PRO-модель
 
 # ====== RETRY ======
 RETRY_ATTEMPTS = 2  # Количество повторных попыток

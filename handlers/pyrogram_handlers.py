@@ -18,12 +18,13 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 from config import (
     PYROGRAM_API_ID, PYROGRAM_API_HASH, DEBUG_PRINT,
     QR_LOGIN_TIMEOUT_SECONDS, QR_LOGIN_POLL_INTERVAL,
-    DRAFT_PROBE_DELAY,
+    DRAFT_PROBE_DELAY, LLM_MODEL_PRO,
 )
 from utils.utils import get_timestamp, typing_action, format_chat_history
+from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_reply, generate_response
 from clients import pyrogram_client
-from database.users import clear_session, get_user, save_session, upsert_user
+from database.users import clear_session, get_user, get_user_settings, save_session, upsert_user
 from system_messages import get_system_message
 from prompts import build_draft_prompt
 
@@ -62,6 +63,7 @@ async def on_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     msg = await get_system_message(u.language_code, "disconnect_success")
     await update.message.reply_text(msg)
+    await update_user_menu(context.bot, u.id, u.language_code, is_connected=False)
     print(f"{get_timestamp()} [BOT] User {u.id} disconnected")
 
 
@@ -341,6 +343,7 @@ async def _poll_qr_login(client, user_id: int, language_code: str, bot, chat_id:
 
         msg = await get_system_message(language_code, "connect_success")
         await bot.send_message(chat_id=chat_id, text=msg)
+        await update_user_menu(bot, user_id, language_code, is_connected=True)
         print(f"{get_timestamp()} [BOT] User {user_id} connected via QR code")
 
     except Exception as e:
@@ -410,6 +413,7 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         msg = await get_system_message(language_code, "connect_success")
         await context.bot.send_message(chat_id=update.effective_chat.id, text=msg)
+        await update_user_menu(context.bot, u.id, language_code, is_connected=True)
         print(f"{get_timestamp()} [BOT] User {u.id} connected via QR code + 2FA")
 
     except ApplicationHandlerStop:
@@ -459,6 +463,13 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
 
     chat_id = message.chat.id
 
+    # Проверяем настройку drafts_enabled
+    user_settings = await get_user_settings(user_id)
+    if not user_settings.get("drafts_enabled", True):
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [PYROGRAM] Drafts disabled for user {user_id}, skipping message")
+        return
+
     if DEBUG_PRINT:
         sender = message.from_user.first_name if message.from_user else "Unknown"
         print(
@@ -490,7 +501,11 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         } if opponent else None
 
         # Генерируем ответ
-        reply_text = await generate_reply(history, user, opponent_info)
+        kwargs: dict = {}
+        if user_settings.get("pro_model"):
+            kwargs["model"] = LLM_MODEL_PRO
+        custom_prompt = user_settings.get("custom_prompt", "")
+        reply_text = await generate_reply(history, user, opponent_info, custom_prompt=custom_prompt, **kwargs)
         if not reply_text or not reply_text.strip():
             return
 
@@ -523,6 +538,13 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
     # Пустой черновик — ничего не делаем
     if not draft_text:
         _pending_drafts.pop(key, None)
+        return
+
+    # Проверяем настройку drafts_enabled
+    user_settings = await get_user_settings(user_id)
+    if not user_settings.get("drafts_enabled", True):
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [PYROGRAM] Drafts disabled for user {user_id}, skipping draft")
         return
 
     # Пользователь набрал текст — запоминаем как инструкцию
@@ -585,12 +607,16 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         user_message += f"INSTRUCTION: {instruction}"
 
         # Генерируем ответ
-        response = await generate_response(
-            user_message=user_message,
-            system_prompt=build_draft_prompt(
+        gen_kwargs: dict = {
+            "user_message": user_message,
+            "system_prompt": build_draft_prompt(
                 has_history=bool(history),
+                custom_prompt=user_settings.get("custom_prompt", ""),
             ),
-        )
+        }
+        if user_settings.get("pro_model"):
+            gen_kwargs["model"] = LLM_MODEL_PRO
+        response = await generate_response(**gen_kwargs)
         if not response or not response.strip():
             return
 

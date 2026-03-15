@@ -113,7 +113,7 @@ async def get_users_with_sessions() -> list[dict]:
     try:
         result = await run_supabase(
             lambda: supabase.table("users").select(
-                "user_id, session_string"
+                "user_id, session_string, language_code"
             ).not_.is_("session_string", "null").execute()
         )
         rows = result.data or []
@@ -183,4 +183,44 @@ async def get_user(user_id: int) -> Optional[dict]:
     except Exception as e:
         print(f"{get_timestamp()} [DB] ERROR get_user {user_id}: {e}")
         return None
+
+
+async def get_user_settings(user_id: int) -> dict:
+    """Возвращает настройки пользователя (или пустой dict)."""
+    user = await get_user(user_id)
+    return (user or {}).get("settings") or {}
+
+
+async def update_user_settings(user_id: int, settings: dict) -> bool:
+    """Обновляет настройки пользователя (merge с существующими).
+
+    Args:
+        user_id: ID пользователя
+        settings: Словарь с обновляемыми ключами (не перезаписывает остальные)
+    """
+    try:
+        user = await get_user(user_id)
+        current = (user or {}).get("settings") or {}
+        merged = {**current, **settings}
+
+        if user is None:
+            await run_supabase(
+                lambda: supabase.table("users").upsert(
+                    {"user_id": user_id, "settings": merged},
+                    on_conflict="user_id",
+                ).execute()
+            )
+        else:
+            await run_supabase(
+                lambda: supabase.table("users").update(
+                    {"settings": merged}
+                ).eq("user_id", user_id).execute()
+            )
+
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [DB] Settings updated for user {user_id}: {merged}")
+        return True
+    except Exception as e:
+        print(f"{get_timestamp()} [DB] ERROR update_user_settings {user_id}: {e}")
+        return False
 

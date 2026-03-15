@@ -1,6 +1,6 @@
 # tests/test_database_users.py — Тесты для database/users.py
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,6 +12,7 @@ from database.users import (
     has_saved_session,
     save_session,
     update_last_msg_at,
+    update_user_settings,
     update_tg_rating,
     upsert_user,
 )
@@ -251,15 +252,15 @@ class TestGetUsersWithSessions:
     async def test_returns_decrypted_rows(self):
         mock_table = _make_mock_table()
         mock_table.execute.return_value = MagicMock(
-            data=[{"user_id": 123, "session_string": encrypt_session_string("abc123")}]
+            data=[{"user_id": 123, "session_string": encrypt_session_string("abc123"), "language_code": "en"}]
         )
         with patch("database.users.supabase") as mock_sb:
             mock_sb.table.return_value = mock_table
 
             result = await get_users_with_sessions()
 
-        assert result == [{"user_id": 123, "session_string": "abc123"}]
-        mock_table.select.assert_called_once_with("user_id, session_string")
+        assert result == [{"user_id": 123, "session_string": "abc123", "language_code": "en"}]
+        mock_table.select.assert_called_once_with("user_id, session_string, language_code")
 
     @pytest.mark.asyncio
     async def test_returns_empty_list_on_error(self):
@@ -306,4 +307,39 @@ class TestGetUser:
             mock_sb.table.side_effect = Exception("DB error")
             result = await get_user(123)
         assert result is None
+
+
+class TestUpdateUserSettings:
+    """Тесты для update_user_settings()."""
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_user_settings_with_merge(self):
+        mock_table = _make_mock_table()
+        with patch("database.users.supabase") as mock_sb, \
+             patch("database.users.get_user", new_callable=AsyncMock, return_value={"settings": {"drafts_enabled": True}}):
+            mock_sb.table.return_value = mock_table
+
+            result = await update_user_settings(123, {"pro_model": True})
+
+        assert result is True
+        mock_table.update.assert_called_once_with(
+            {"settings": {"drafts_enabled": True, "pro_model": True}}
+        )
+        mock_table.upsert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upserts_settings_for_new_user(self):
+        mock_table = _make_mock_table()
+        with patch("database.users.supabase") as mock_sb, \
+             patch("database.users.get_user", new_callable=AsyncMock, return_value=None):
+            mock_sb.table.return_value = mock_table
+
+            result = await update_user_settings(123, {"pro_model": True})
+
+        assert result is True
+        mock_table.upsert.assert_called_once_with(
+            {"user_id": 123, "settings": {"pro_model": True}},
+            on_conflict="user_id",
+        )
+        mock_table.update.assert_not_called()
 

@@ -18,7 +18,7 @@ from handlers.pyrogram_handlers import (
     on_status,
 )
 from system_messages import SYSTEM_MESSAGES
-from utils.bot_utils import update_menu_language
+from utils.bot_utils import update_user_menu
 
 TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"]
 
@@ -488,33 +488,63 @@ class TestOnPyrogramDraft:
         mock_gen.assert_called_once()
 
 
-class TestUpdateMenuLanguage:
-    """Тесты для update_menu_language()."""
+class TestUpdateUserMenu:
+    """Тесты для update_user_menu()."""
 
     @pytest.mark.asyncio
-    async def test_english_returns_early(self, mock_bot):
-        """Английский → ранний return (уже по умолчанию)."""
-        await update_menu_language(mock_bot, "en")
-        mock_bot.set_my_commands.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_sets_commands_for_other_language(self, mock_bot):
-        """Другой язык → устанавливает команды."""
+    async def test_sets_disconnect_when_connected(self, mock_bot):
+        """Подключён → показывает disconnect, скрывает connect."""
         with patch(
             "utils.bot_utils.get_system_messages",
             new_callable=AsyncMock,
             return_value={
-                "menu_start": "Начать",
-                "menu_connect": "QR",
-                "menu_disconnect": "Отключить",
-                "menu_status": "Статус",
+                "menu_connect": "Connect",
+                "menu_disconnect": "Disconnect",
+                "menu_status": "Status",
+                "menu_settings": "Settings",
             },
         ):
-            await update_menu_language(mock_bot, "ru")
+            await update_user_menu(mock_bot, 123, "en", is_connected=True)
 
-        mock_bot.set_my_commands.assert_called_once()
+        call_args = mock_bot.set_my_commands.call_args
+        commands = call_args.args[0]
+        command_names = [c.command for c in commands]
+        assert "disconnect" in command_names
+        assert "connect" not in command_names
 
     @pytest.mark.asyncio
-    async def test_none_language_treated_as_english(self, mock_bot):
-        await update_menu_language(mock_bot, None)
-        mock_bot.set_my_commands.assert_not_called()
+    async def test_sets_connect_when_disconnected(self, mock_bot):
+        """Отключён → показывает connect, скрывает disconnect."""
+        with patch(
+            "utils.bot_utils.get_system_messages",
+            new_callable=AsyncMock,
+            return_value={
+                "menu_connect": "Connect",
+                "menu_disconnect": "Disconnect",
+                "menu_status": "Status",
+                "menu_settings": "Settings",
+            },
+        ):
+            await update_user_menu(mock_bot, 123, "en", is_connected=False)
+
+        call_args = mock_bot.set_my_commands.call_args
+        commands = call_args.args[0]
+        command_names = [c.command for c in commands]
+        assert "connect" in command_names
+        assert "disconnect" not in command_names
+
+    @pytest.mark.asyncio
+    async def test_none_language_defaults_to_english(self, mock_bot):
+        with patch(
+            "utils.bot_utils.get_system_messages",
+            new_callable=AsyncMock,
+            return_value={
+                "menu_connect": "Connect",
+                "menu_disconnect": "Disconnect",
+                "menu_status": "Status",
+                "menu_settings": "Settings",
+            },
+        ):
+            await update_user_menu(mock_bot, 123, None, is_connected=False)
+
+        mock_bot.set_my_commands.assert_called_once()

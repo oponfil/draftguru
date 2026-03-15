@@ -5,13 +5,14 @@ import traceback
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import DEBUG_PRINT, MAX_CONTEXT_MESSAGES
+from config import DEBUG_PRINT, LLM_MODEL_PRO, MAX_CONTEXT_MESSAGES
 from utils.utils import get_timestamp, typing_action
-from utils.bot_utils import update_menu_language
+from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
-from database.users import upsert_user, update_last_msg_at, update_tg_rating
+from database.users import upsert_user, update_last_msg_at, update_tg_rating, get_user_settings, update_user_settings
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
+from clients import pyrogram_client
 
 
 @typing_action
@@ -45,8 +46,9 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     greeting = await get_system_message(u.language_code, "greeting")
     await update.message.reply_text(greeting)
 
-    # Устанавливаем меню команд на языке пользователя
-    await update_menu_language(context.bot, u.language_code)
+    # Устанавливаем меню команд с учётом статуса подключения
+    is_connected = pyrogram_client.is_active(u.id)
+    await update_user_menu(context.bot, u.id, u.language_code, is_connected)
 
 
 @typing_action
@@ -57,6 +59,21 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     message_text = m.text or ""
     if not message_text.strip():
+        return
+
+    # Проверяем: пользователь вводит кастомный промпт?
+    if context.user_data.get("awaiting_prompt"):
+        saved = await update_user_settings(u.id, {"custom_prompt": message_text.strip()})
+        if not saved:
+            error_msg = await get_system_message(u.language_code, "error")
+            await m.reply_text(error_msg)
+            return
+
+        context.user_data.pop("awaiting_prompt", None)
+        msg = await get_system_message(u.language_code, "settings_prompt_saved")
+        await m.reply_text(msg)
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [BOT] Custom prompt saved for user {u.id}: {len(message_text)} chars")
         return
 
     # Обновляем last_msg_at
@@ -72,11 +89,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
     try:
+        # Читаем настройки пользователя для выбора модели
+        user_settings = await get_user_settings(u.id)
+        model = LLM_MODEL_PRO if user_settings.get("pro_model") else None
+
         # Генерируем ответ через OpenRouter с историей
-        response_text = await generate_response(
-            message_text,
-            chat_history=history[-MAX_CONTEXT_MESSAGES:],
-        )
+        kwargs: dict = {"chat_history": history[-MAX_CONTEXT_MESSAGES:]}
+        if model:
+            kwargs["model"] = model
+        response_text = await generate_response(message_text, **kwargs)
 
         # Сохраняем в историю
         history.append({"role": "user", "content": message_text})
