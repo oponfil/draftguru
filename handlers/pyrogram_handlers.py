@@ -21,7 +21,7 @@ from config import (
 from utils.utils import get_timestamp, typing_action, format_chat_history
 from clients.x402gate.openrouter import generate_reply, generate_response
 from clients import pyrogram_client
-from database.users import save_session, clear_session, get_user
+from database.users import clear_session, get_user, save_session, upsert_user
 from system_messages import get_system_message
 from prompts import build_draft_prompt
 
@@ -69,6 +69,14 @@ async def on_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ====== /connect ======
 
+_qr_login_tasks: set[asyncio.Task] = set()
+
+
+def _register_qr_login_task(task: asyncio.Task) -> None:
+    """Регистрирует фоновую QR-задачу до её завершения."""
+    _qr_login_tasks.add(task)
+    task.add_done_callback(_qr_login_tasks.discard)
+
 @typing_action
 async def on_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /connect — подключение аккаунта через QR-код."""
@@ -84,6 +92,17 @@ async def on_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     try:
+        # /connect должен работать даже без предварительного /start
+        await upsert_user(
+            user_id=u.id,
+            username=u.username,
+            first_name=u.first_name,
+            last_name=u.last_name,
+            is_bot=u.is_bot,
+            is_premium=bool(u.is_premium),
+            language_code=u.language_code,
+        )
+
         # Создаём временного клиента Pyrogram
         client = Client(
             name=f"talkguru_qr_{u.id}",
@@ -121,9 +140,16 @@ async def on_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             print(f"{get_timestamp()} [CONNECT_QR] QR sent to user {u.id}, waiting for scan...")
 
         # Запускаем polling в фоне, чтобы НЕ блокировать бот
-        asyncio.create_task(
-            _poll_qr_login(client, u.id, u.language_code, context.bot, update.effective_chat.id)
+        task = asyncio.create_task(
+            _poll_qr_login(
+                client,
+                u.id,
+                u.language_code,
+                context.bot,
+                update.effective_chat.id,
+            )
         )
+        _register_qr_login_task(task)
 
     except Exception as e:
         print(f"{get_timestamp()} [BOT] ERROR connect for user {u.id}: {e}")

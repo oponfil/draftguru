@@ -55,12 +55,19 @@ result = await asyncio.to_thread(blocking_function, arg1)
 ❌ Не дублировать логику.
 ✅ Выносить общий код в отдельные функции.
 
-## 7. Обратная Совместимость
+## 7. Доступ к Базе Данных
+
+❌ Запрещено вызывать базу данных напрямую вне папки `database/`.
+❌ Нельзя импортировать `supabase` или `run_supabase` в `handlers/`, `utils/`, `clients/` и другие слои приложения.
+✅ Любой доступ к данным должен идти только через функции в `database/*.py`.
+✅ Если нужен новый запрос, сначала добавляем отдельную функцию в `database/`, а затем вызываем её из остальных модулей.
+
+## 8. Обратная Совместимость
 
 ❌ Не поддерживаем. Старый код удаляем сразу.
 ✅ Один формат, без fallback.
 
-## 8. Linting (Ruff)
+## 9. Linting (Ruff)
 
 Используем **ruff** для проверки кода. Перед каждым коммитом:
 
@@ -71,7 +78,7 @@ ruff check .
 - Все ошибки должны быть исправлены до коммита
 - `# noqa: <RULE>` допустим только с обоснованием (например, `# noqa: E402` для намеренного порядка импортов)
 
-## 9. Git Commits
+## 10. Git Commits
 
 ### Формат: Conventional Commits
 ```
@@ -100,7 +107,7 @@ git add -A
 git commit -F .git-commit-msg.txt
 ```
 
-## 10. Тестирование — TDD (Test-Driven Development)
+## 11. Тестирование — TDD (Test-Driven Development)
 
 Проект следует подходу **TDD** — разработка через тестирование.
 
@@ -126,14 +133,15 @@ pytest tests/ -v
 
 Все тесты **должны** проходить перед каждым коммитом.
 
-## 11. Code Review Checklist
+## 12. Code Review Checklist
 
 1. [ ] **DRY**: Нет дублирования
 2. [ ] **Imports**: В начале файла, без lazy imports
 3. [ ] **Style**: Именование и типизация
 4. [ ] **Async**: Сетевые вызовы через `await`
 5. [ ] **Logging**: Ошибки без `if DEBUG_PRINT`
-6. [ ] **Constants**: Всё в `config.py`
-7. [ ] **Linting**: `ruff check .` проходит без ошибок
-8. [ ] **Tests**: `pytest tests/ -v` проходит без ошибок
-9. [ ] **Commits**: Conventional Commits, английский
+6. [ ] **DB Access**: Нет прямых вызовов базы вне `database/`
+7. [ ] **Constants**: Всё в `config.py`
+8. [ ] **Linting**: `ruff check .` проходит без ошибок
+9. [ ] **Tests**: `pytest tests/ -v` проходит без ошибок
+10. [ ] **Commits**: Conventional Commits, английский

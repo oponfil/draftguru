@@ -5,13 +5,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from database.users import (
-    upsert_user,
+    clear_session,
+    get_session,
+    get_user,
+    get_users_with_sessions,
+    save_session,
     update_last_msg_at,
     update_tg_rating,
-    save_session,
-    get_session,
-    clear_session,
-    get_user,
+    upsert_user,
 )
 
 
@@ -22,7 +23,7 @@ def _make_mock_table():
     mock_table.update.return_value = mock_table
     mock_table.select.return_value = mock_table
     mock_table.eq.return_value = mock_table
-    mock_table.not_.return_value = mock_table
+    mock_table.not_.is_.return_value = mock_table
     mock_table.is_.return_value = mock_table
     mock_table.execute.return_value = MagicMock(data=[])
     return mock_table
@@ -137,8 +138,10 @@ class TestSaveSession:
 
             await save_session(123, "session-string-value")
 
-        mock_table.update.assert_called_once_with({"session_string": "session-string-value"})
-        mock_table.eq.assert_called_once_with("user_id", 123)
+        mock_table.upsert.assert_called_once_with(
+            {"user_id": 123, "session_string": "session-string-value"},
+            on_conflict="user_id",
+        )
 
 
 class TestGetSession:
@@ -189,6 +192,33 @@ class TestClearSession:
 
         mock_table.update.assert_called_once_with({"session_string": None})
         mock_table.eq.assert_called_once_with("user_id", 123)
+
+
+class TestGetUsersWithSessions:
+    """Тесты для get_users_with_sessions()."""
+
+    @pytest.mark.asyncio
+    async def test_returns_rows(self):
+        mock_table = _make_mock_table()
+        mock_table.execute.return_value = MagicMock(
+            data=[{"user_id": 123, "session_string": "abc123"}]
+        )
+        with patch("database.users.supabase") as mock_sb:
+            mock_sb.table.return_value = mock_table
+
+            result = await get_users_with_sessions()
+
+        assert result == [{"user_id": 123, "session_string": "abc123"}]
+        mock_table.select.assert_called_once_with("user_id, session_string")
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_on_error(self):
+        with patch("database.users.supabase") as mock_sb:
+            mock_sb.table.side_effect = Exception("DB error")
+
+            result = await get_users_with_sessions()
+
+        assert result == []
 
 
 class TestGetUser:

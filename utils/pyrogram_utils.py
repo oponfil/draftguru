@@ -2,23 +2,21 @@
 
 from telegram.ext import Application
 
-from utils.utils import get_timestamp
 from clients import pyrogram_client
-from database import supabase
+from database.users import get_users_with_sessions
+from utils.utils import get_timestamp
 
 
 async def restore_sessions(app: Application) -> None:
     """Восстанавливает активные Pyrogram-сессии при старте бота."""
     try:
-        result = supabase.table("users").select(
-            "user_id, session_string"
-        ).not_.is_("session_string", "null").execute()
+        rows = await get_users_with_sessions()
 
-        if not result.data:
+        if not rows:
             return
 
         count = 0
-        for row in result.data:
+        for row in rows:
             user_id = row["user_id"]
             session_string = row["session_string"]
             if session_string:

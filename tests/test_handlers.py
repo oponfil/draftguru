@@ -5,16 +5,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from handlers.pyrogram_handlers import (
-    on_disconnect,
-    on_status,
-    on_pyrogram_message,
-    on_pyrogram_draft,
     _bot_drafts,
     _pending_drafts,
+    _poll_qr_login,
+    on_disconnect,
+    on_connect,
+    on_pyrogram_draft,
+    on_pyrogram_message,
+    on_status,
 )
-from utils.bot_utils import update_menu_language
-
 from system_messages import SYSTEM_MESSAGES
+from utils.bot_utils import update_menu_language
 
 TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"]
 
@@ -69,6 +70,74 @@ class TestOnStatus:
             await on_status(mock_update, mock_context)
 
         mock_update.message.reply_text.assert_called_once()
+
+
+class TestOnConnect:
+    """Тесты для on_connect() и QR login flow."""
+
+    @pytest.mark.asyncio
+    async def test_connect_upserts_user_and_starts_background_polling(self, mock_update, mock_context):
+        """`/connect` должен создавать пользователя и запускать polling."""
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(return_value=MagicMock(token=b"login-token"))
+        mock_client.connect = AsyncMock()
+
+        mock_qr = MagicMock()
+        mock_qr.save = MagicMock()
+        task = MagicMock()
+
+        def create_task_stub(coro):
+            coro.close()
+            return task
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
+             patch("handlers.pyrogram_handlers.qrcode.make", return_value=mock_qr), \
+             patch("handlers.pyrogram_handlers.upsert_user", new_callable=AsyncMock) as mock_upsert, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Scan QR"), \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=create_task_stub) as mock_create_task, \
+             patch("handlers.pyrogram_handlers._register_qr_login_task") as mock_register_task:
+            mock_pc.is_active.return_value = False
+
+            await on_connect(mock_update, mock_context)
+
+        mock_upsert.assert_called_once_with(
+            user_id=mock_update.effective_user.id,
+            username=mock_update.effective_user.username,
+            first_name=mock_update.effective_user.first_name,
+            last_name=mock_update.effective_user.last_name,
+            is_bot=mock_update.effective_user.is_bot,
+            is_premium=bool(mock_update.effective_user.is_premium),
+            language_code=mock_update.effective_user.language_code,
+        )
+        mock_client.connect.assert_called_once()
+        mock_update.message.reply_photo.assert_called_once()
+        mock_create_task.assert_called_once()
+        mock_register_task.assert_called_once_with(task)
+
+    @pytest.mark.asyncio
+    async def test_poll_qr_login_success_saves_session_and_starts_listening(self, mock_bot):
+        """Успешный QR login должен сохранить сессию и запустить listener."""
+        login_success = type("LoginTokenSuccess", (), {})()
+
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(return_value=login_success)
+        mock_client.export_session_string = AsyncMock(return_value="session-123")
+        mock_client.disconnect = AsyncMock()
+
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock) as mock_save_session, \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+            mock_pc.start_listening = AsyncMock(return_value=True)
+
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+
+        mock_client.export_session_string.assert_called_once()
+        mock_client.disconnect.assert_called_once()
+        mock_save_session.assert_called_once_with(123, "session-123")
+        mock_pc.start_listening.assert_called_once_with(123, "session-123")
+        mock_bot.send_message.assert_called_once_with(chat_id=456, text="Connected")
 
 
 class TestOnPyrogramMessage:

@@ -2,8 +2,8 @@
 
 from typing import Optional
 
-from database import supabase
 from config import DEBUG_PRINT
+from database import run_supabase, supabase
 from utils.utils import get_timestamp
 
 
@@ -32,10 +32,12 @@ async def upsert_user(
         data["language_code"] = language_code
 
     try:
-        supabase.table("users").upsert(
-            data,
-            on_conflict="user_id",
-        ).execute()
+        await run_supabase(
+            lambda: supabase.table("users").upsert(
+                data,
+                on_conflict="user_id",
+            ).execute()
+        )
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [DB] Upsert user {user_id} (@{username})")
@@ -46,9 +48,11 @@ async def upsert_user(
 async def update_last_msg_at(user_id: int) -> None:
     """Обновляет время последнего сообщения пользователя."""
     try:
-        supabase.table("users").update(
-            {"last_msg_at": "now()"}
-        ).eq("user_id", user_id).execute()
+        await run_supabase(
+            lambda: supabase.table("users").update(
+                {"last_msg_at": "now()"}
+            ).eq("user_id", user_id).execute()
+        )
     except Exception as e:
         print(f"{get_timestamp()} [DB] ERROR update_last_msg_at {user_id}: {e}")
 
@@ -56,9 +60,11 @@ async def update_last_msg_at(user_id: int) -> None:
 async def update_tg_rating(user_id: int, rating: Optional[int]) -> None:
     """Обновляет рейтинг Telegram Stars пользователя."""
     try:
-        supabase.table("users").update(
-            {"tg_rating": rating}
-        ).eq("user_id", user_id).execute()
+        await run_supabase(
+            lambda: supabase.table("users").update(
+                {"tg_rating": rating}
+            ).eq("user_id", user_id).execute()
+        )
     except Exception as e:
         print(f"{get_timestamp()} [DB] ERROR update_tg_rating {user_id}: {e}")
 
@@ -66,9 +72,12 @@ async def update_tg_rating(user_id: int, rating: Optional[int]) -> None:
 async def save_session(user_id: int, session_string: str) -> None:
     """Сохраняет Pyrogram session string пользователя."""
     try:
-        supabase.table("users").update(
-            {"session_string": session_string}
-        ).eq("user_id", user_id).execute()
+        await run_supabase(
+            lambda: supabase.table("users").upsert(
+                {"user_id": user_id, "session_string": session_string},
+                on_conflict="user_id",
+            ).execute()
+        )
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [DB] Session saved for user {user_id}")
@@ -79,9 +88,11 @@ async def save_session(user_id: int, session_string: str) -> None:
 async def get_session(user_id: int) -> Optional[str]:
     """Получает Pyrogram session string пользователя."""
     try:
-        result = supabase.table("users").select(
-            "session_string"
-        ).eq("user_id", user_id).execute()
+        result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "session_string"
+            ).eq("user_id", user_id).execute()
+        )
 
         if result.data and result.data[0].get("session_string"):
             return result.data[0]["session_string"]
@@ -91,12 +102,28 @@ async def get_session(user_id: int) -> Optional[str]:
         return None
 
 
+async def get_users_with_sessions() -> list[dict]:
+    """Возвращает пользователей с сохранёнными Pyrogram-сессиями."""
+    try:
+        result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "user_id, session_string"
+            ).not_.is_("session_string", "null").execute()
+        )
+        return result.data or []
+    except Exception as e:
+        print(f"{get_timestamp()} [DB] ERROR get_users_with_sessions: {e}")
+        return []
+
+
 async def clear_session(user_id: int) -> None:
     """Очищает Pyrogram session string пользователя."""
     try:
-        supabase.table("users").update(
-            {"session_string": None}
-        ).eq("user_id", user_id).execute()
+        await run_supabase(
+            lambda: supabase.table("users").update(
+                {"session_string": None}
+            ).eq("user_id", user_id).execute()
+        )
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [DB] Session cleared for user {user_id}")
@@ -107,9 +134,11 @@ async def clear_session(user_id: int) -> None:
 async def get_user(user_id: int) -> Optional[dict]:
     """Получает все поля пользователя из БД."""
     try:
-        result = supabase.table("users").select(
-            "*"
-        ).eq("user_id", user_id).execute()
+        result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "*"
+            ).eq("user_id", user_id).execute()
+        )
 
         if result.data and result.data[0]:
             return result.data[0]
