@@ -13,7 +13,7 @@ from utils.utils import get_timestamp
 
 # ====== Системные сообщения (на английском, переводятся для пользователя) ======
 SYSTEM_MESSAGES = {
-    "greeting": "👋 Hey! I'm TalkGuru — an assistant that helps you write responses to messages.\n\nJust send me a text, and I'll suggest a reply!",
+    "greeting": "👋 Hey! I'm TalkGuru — a bot that writes draft replies for you.\n\n1. 🔌 Connect your account via /connect (QR code).\n2. 🦉 When someone messages you — I automatically compose a draft reply in the input field.\n3. ✏️ Write an instruction in the draft — I'll rewrite it as soon as you leave the chat.",
     "error": "⚠️ An error occurred. Please try again later.",
     "connect_success": "✅ Account connected! I'll now suggest replies to your incoming messages as drafts.",
     "connect_error": "🔌 Failed to connect your account. Please try again with /connect.",

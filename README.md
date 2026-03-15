@@ -1,19 +1,12 @@
-# TalkGuru 🗣️
+# TalkGuru 🦉
 
-Опенсорсный Telegram-бот, помогающий писать ответы на сообщения.
+Опенсорсный Telegram-бот, который пишет черновик ответа за вас.
 
-Использует **Gemini 3.1 Flash** через OpenRouter и [x402gate.io](https://x402gate.io) (оплата USDC на Base).
+## Как работает
 
-## Возможности
-
-- 💬 **Ответы на сообщения** — отправьте текст, бот предложит ответ
-- 🔗 **Подключение аккаунта** (`/connect`) — бот читает входящие и предлагает ответ как черновик (только личные чаты)
-- 🌐 **Мультиязычность** — интерфейс и статусы переводятся на язык пользователя
-- 📝 **Черновики** — ответ появляется в поле ввода, отправляете сами
-- 🦉 **Probe-детекция** — бот определяет, вышел ли пользователь из чата, через статус «🦉 is typing...»
-- ✏️ **Драфт-инструкции** — напишите инструкцию в черновик любого чата (личного, группы, канала), бот обработает
-- 🕐 **Таймстампы в контексте** — AI видит дату и время каждого сообщения для понимания интервалов
-- 📄 **Логирование запросов** — полный запрос/ответ AI сохраняется в `logs/` (`LOG_TO_FILE=true`)
+1. 🔌 Подключите аккаунт через `/connect` (QR-код).
+2. 🦉 Когда вам пишут в личный чат — бот автоматически составляет черновик ответа прямо в поле ввода.
+3. ✏️ В черновике можно написать инструкцию — бот перепишет его, как только вы выйдете из чата.
 
 ## Быстрый старт
 
@@ -37,6 +30,10 @@ cp .env.example .env
 - `SUPABASE_URL` и `SUPABASE_KEY` — из [Supabase Dashboard](https://supabase.com) (используйте **service_role** ключ)
 - `EVM_PRIVATE_KEY` — приватный ключ кошелька Base с USDC для оплаты AI
 
+Опционально для отладки:
+- `DEBUG_PRINT=true` — подробные логи в консоли (по умолчанию `false`)
+- `LOG_TO_FILE=true` — сохранять запросы/ответы AI в `logs/` (по умолчанию `false`)
+
 ### 3. Создать таблицу в Supabase
 
 Выполните `schema.sql` в SQL Editor вашего Supabase проекта.
@@ -52,9 +49,9 @@ python bot.py
 | Команда | Описание |
 |---------|----------|
 | `/start` | Начать |
+| `/status` | Статус подключения |
 | `/connect` | Подключить Telegram-аккаунт через QR-код |
 | `/disconnect` | Отключить аккаунт |
-| `/status` | Статус подключения |
 
 ## Деплой на Railway
 
@@ -75,14 +72,14 @@ pytest tests/ -v
 
 ## Архитектура
 
-- **bot.py** — Telegram-обработчики (`/start`, `on_text`), запуск бота
-- **handlers/** — Обработчики команд и событий Pyrogram (`/connect`, `on_pyrogram_message`, `on_pyrogram_draft`)
+- **bot.py** — Точка входа: регистрация обработчиков и запуск бота
+- **handlers/** — Обработчики команд (`bot_handlers.py` — `/start`, `on_text`) и событий Pyrogram (`pyrogram_handlers.py` — `/connect`, `on_pyrogram_message`, `on_pyrogram_draft`)
 - **config.py** — Все константы и переменные окружения
 - **prompts.py** — Все промпты для ИИ
 - **system_messages.py** — Системные сообщения с переводом на язык пользователя
 - **clients/** — API-клиенты (`x402gate`, `pyrogram_client`)
 - **database/** — Запросы к Supabase (`upsert_user`, `get_user`, `save_session`)
-- **utils/** — Утилиты (`get_timestamp`, `extract_rating_from_chat`)
+- **utils/** — Утилиты (`bot_utils`, `pyrogram_utils`, `telegram_rating`, `utils`)
 - **tests/** — Unit-тесты (pytest)
 
 ## Стек
@@ -90,7 +87,7 @@ pytest tests/ -v
 - **Python 3.13**
 - **python-telegram-bot** — Telegram Bot API
 - **Pyrogram** — Telegram Client API (чтение сообщений, черновики)
-- **x402gate.io** → OpenRouter → Gemini 3.1 Flash
+- **x402gate.io** → OpenRouter → любая модель (задаётся в `config.py`, оплата USDC на Base)
 - **Supabase** — PostgreSQL (БД)
 - **Railway** — хостинг
 

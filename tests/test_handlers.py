@@ -9,12 +9,14 @@ from handlers.pyrogram_handlers import (
     on_status,
     on_pyrogram_message,
     on_pyrogram_draft,
-    update_menu_language,
     _bot_drafts,
     _pending_drafts,
 )
+from utils.bot_utils import update_menu_language
 
-TYPING_TEXT = "✍️ TalkGuru is typing..."
+from system_messages import SYSTEM_MESSAGES
+
+TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"]
 
 
 class TestOnDisconnect:
@@ -208,7 +210,7 @@ class TestUpdateMenuLanguage:
     async def test_sets_commands_for_other_language(self, mock_bot):
         """Другой язык → устанавливает команды."""
         with patch(
-            "handlers.pyrogram_handlers.get_system_messages",
+            "utils.bot_utils.get_system_messages",
             new_callable=AsyncMock,
             return_value={
                 "menu_start": "Начать",

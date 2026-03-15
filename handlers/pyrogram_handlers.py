@@ -10,10 +10,8 @@ from pyrogram import Client
 from pyrogram.raw.functions.auth import ExportLoginToken, ImportLoginToken
 from pyrogram.session import Session as PyroSession
 from pyrogram.session.auth import Auth
-from telegram import BotCommand, Update
-from telegram.ext import (
-    Application, ContextTypes,
-)
+from telegram import Update
+from telegram.ext import ContextTypes
 
 from config import (
     PYROGRAM_API_ID, PYROGRAM_API_HASH, DEBUG_PRINT,
@@ -23,10 +21,9 @@ from config import (
 from utils.utils import get_timestamp, typing_action, format_chat_history
 from clients.x402gate.openrouter import generate_reply, generate_response
 from clients import pyrogram_client
-from database import supabase
 from database.users import save_session, clear_session, get_user
-from system_messages import get_system_message, get_system_messages
-from prompts import DRAFT_INSTRUCTION_PROMPT
+from system_messages import get_system_message
+from prompts import build_draft_prompt
 
 
 # ====== /disconnect ======
@@ -368,7 +365,9 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         # Генерируем ответ
         response = await generate_response(
             user_message=user_message,
-            system_prompt=DRAFT_INSTRUCTION_PROMPT,
+            system_prompt=build_draft_prompt(
+                has_history=bool(history),
+            ),
         )
         if not response or not response.strip():
             return
@@ -382,54 +381,3 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
     except Exception as e:
         print(f"{get_timestamp()} [DRAFT] ERROR processing draft for user {user_id}: {e}")
-
-
-# ====== ВСПОМОГАТЕЛЬНЫЕ ======
-
-async def restore_sessions(app: Application) -> None:
-    """Восстанавливает активные Pyrogram-сессии при старте бота."""
-    try:
-        result = supabase.table("users").select(
-            "user_id, session_string"
-        ).not_.is_("session_string", "null").execute()
-
-        if not result.data:
-            return
-
-        count = 0
-        for row in result.data:
-            user_id = row["user_id"]
-            session_string = row["session_string"]
-            if session_string:
-                ok = await pyrogram_client.start_listening(user_id, session_string)
-                if ok:
-                    count += 1
-
-        if count > 0:
-            print(f"{get_timestamp()} [BOT] Restored {count} Pyrogram session(s)")
-
-    except Exception as e:
-        print(f"{get_timestamp()} [BOT] ERROR restoring sessions: {e}")
-
-
-async def update_menu_language(bot, language_code: str | None) -> None:
-    """Устанавливает меню команд на языке пользователя."""
-    lang = (language_code or "en").lower()
-    if lang == "en":
-        return  # Английский уже установлен по умолчанию
-
-    try:
-        messages = await get_system_messages(lang)
-        await bot.set_my_commands(
-            [
-                BotCommand("start", messages.get("menu_start", "Start")),
-                BotCommand("connect", messages.get("menu_connect", "Connect account")),
-                BotCommand("disconnect", messages.get("menu_disconnect", "Disconnect account")),
-                BotCommand("status", messages.get("menu_status", "Connection status")),
-            ],
-            language_code=lang,
-        )
-        if DEBUG_PRINT:
-            print(f"{get_timestamp()} [BOT] Menu commands set for language: {lang}")
-    except Exception as e:
-        print(f"{get_timestamp()} [BOT] ERROR setting menu for {lang}: {e}")
