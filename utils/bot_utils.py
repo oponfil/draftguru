@@ -17,14 +17,15 @@ async def update_user_menu(bot, user_id: int, language_code: str | None, is_conn
     try:
         messages = await get_system_messages(lang)
 
-        commands = [BotCommand("status", messages.get("menu_status", "Connection status"))]
+        commands = [
+            BotCommand("settings", messages.get("menu_settings", "Settings")),
+            BotCommand("status", messages.get("menu_status", "Connection status")),
+        ]
 
         if is_connected:
             commands.append(BotCommand("disconnect", messages.get("menu_disconnect", "Disconnect account")))
         else:
             commands.append(BotCommand("connect", messages.get("menu_connect", "Connect account")))
-
-        commands.append(BotCommand("settings", messages.get("menu_settings", "Settings")))
 
         await bot.set_my_commands(
             commands,

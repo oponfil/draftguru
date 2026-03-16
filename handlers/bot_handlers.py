@@ -16,6 +16,8 @@ from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
 
 
+
+
 @typing_action
 async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /start."""

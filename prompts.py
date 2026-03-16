@@ -10,7 +10,8 @@ BOT_PROMPT = (
     "3. User can write an instruction in the draft — you rewrite it as soon as they leave the chat.\n\n"
     "You are chatting directly with the user. You have the conversation history — use it to maintain context.\n"
     "Be concise, helpful, and to the point. "
-    "Always respond in the same language as the user's message."
+    "Always respond in the same language as the user's message. "
+    "Do NOT use Markdown formatting (no **, ##, ```, etc.) — Telegram does not render it."
 )
 
 # Промпт для перевода системных сообщений — используется в translate_messages (system_messages.py)

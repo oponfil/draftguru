@@ -43,7 +43,7 @@ def _build_settings_keyboard(settings: dict, messages: dict) -> InlineKeyboardMa
     model_label = messages.get("settings_model_pro") if pro_model else messages.get("settings_model_free")
     prompt_label = messages.get("settings_prompt_set") if has_prompt else messages.get("settings_prompt_empty")
     auto_reply = normalize_auto_reply(settings.get("auto_reply"))
-    auto_label = messages.get(AUTO_REPLY_OPTIONS.get(auto_reply, "settings_auto_off"))
+    auto_label = messages.get(AUTO_REPLY_OPTIONS.get(auto_reply, "settings_auto_reply_off"))
     style_label = messages.get(STYLE_OPTIONS.get(settings.get("style"), "settings_style_userlike"))
 
     tz_offset = settings.get("tz_offset", 0) or 0

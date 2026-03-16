@@ -81,6 +81,7 @@ PHONE_CODE_TIMEOUT_SECONDS = 120  # Таймаут на ввод кода при
 
 # ====== DRAFT INTERACTION ======
 DRAFT_PROBE_DELAY = 2  # Секунды ожидания после пробы (draft_typing)
+DRAFT_VERIFY_DELAY = 3  # Секунды до проверки доставки AI-черновика
 POLL_MISSED_INTERVAL = 60  # Интервал проверки пропущенных сообщений (секунды)
 POLL_MISSED_DIALOGS_LIMIT = 10  # Кол-во последних приватных чатов для проверки
 
@@ -99,12 +100,12 @@ STICKER_FALLBACK_EMOJI = "□"  # Fallback для стикеров без при
 # ====== АВТООТВЕТ ======
 # {секунды: ключ сообщения} — None = выключено (по умолчанию)
 AUTO_REPLY_OPTIONS: dict[int | None, str] = {
-    None: "settings_auto_off",
-    60: "settings_auto_1m",
-    300: "settings_auto_5m",
-    900: "settings_auto_15m",
-    3600: "settings_auto_1h",
-    57600: "settings_auto_16h",
+    None: "settings_auto_reply_off",
+    60: "settings_auto_reply_1m",
+    300: "settings_auto_reply_5m",
+    900: "settings_auto_reply_15m",
+    3600: "settings_auto_reply_1h",
+    57600: "settings_auto_reply_16h",
 }
 
 # ====== СТИЛЬ ОБЩЕНИЯ ======

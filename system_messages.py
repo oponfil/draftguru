@@ -21,7 +21,7 @@ from utils.utils import get_timestamp
 # ====== Системные сообщения (на английском, переводятся для пользователя) ======
 SYSTEM_MESSAGES = {
     # — General —
-    "greeting": "👋 Hey! I'm TalkGuru — a bot that writes draft replies for you.\n\n1. 🔌 Connect your account via /connect (phone or QR code).\n2. 🦉 When someone messages you — I automatically compose a draft reply in the input field.\n3. ✏️ Write an instruction in the draft — I'll rewrite it as soon as you leave the chat.",
+    "greeting": "👋 Hey! I'm TalkGuru — a bot that writes draft replies for you.\n\n1. 🔌 Connect your account via /connect (phone or QR code).\n2. 🦉 When someone messages you — I automatically compose a draft reply in the input field.\n3. ✏️ Write an instruction in the draft — I'll rewrite it as soon as you leave the chat.\n\n🔞 For users 18+ only.",
     "error": "⚠️ An error occurred. Please try again later.",
 
     # — Connect / Disconnect —
@@ -63,8 +63,8 @@ SYSTEM_MESSAGES = {
 
     # — Settings —
     "settings_title": "⚙️ Settings\nTap buttons to change.",
-    "settings_drafts_on": "✏️ Drafts: ✅ ON",
-    "settings_drafts_off": "✏️ Drafts: ❌ OFF",
+    "settings_drafts_on": "✏️ Draft editing: ✅ ON",
+    "settings_drafts_off": "✏️ Draft editing: ❌ OFF",
     "settings_model_free": "🤖 Model: FREE",
     "settings_model_pro": "🤖 Model: ⭐ PRO",
     "settings_prompt_set": "📝 Prompt: ✅ set (tap to clear)",
@@ -72,12 +72,12 @@ SYSTEM_MESSAGES = {
     "settings_prompt_enter": f"📝 Send your custom prompt as a message. It will be added to the AI system prompt for all chats.\n\n⚠️ Max length: {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_truncated": f"⚠️ Prompt was too long, so I saved only the first {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_saved": "✅ Custom prompt saved!",
-    "settings_auto_off": "⏰ Auto-reply: OFF",
-    "settings_auto_1m": "⏰ Auto-reply: 1 min",
-    "settings_auto_5m": "⏰ Auto-reply: 5 min",
-    "settings_auto_15m": "⏰ Auto-reply: 15 min",
-    "settings_auto_1h": "⏰ Auto-reply: 1 hour",
-    "settings_auto_16h": "⏰ Auto-reply: 16 hours",
+    "settings_auto_reply_off": "⏰ Auto-reply: OFF",
+    "settings_auto_reply_1m": "⏰ Auto-reply: 1 min",
+    "settings_auto_reply_5m": "⏰ Auto-reply: 5 min",
+    "settings_auto_reply_15m": "⏰ Auto-reply: 15 min",
+    "settings_auto_reply_1h": "⏰ Auto-reply: 1 hour",
+    "settings_auto_reply_16h": "⏰ Auto-reply: 16 hours",
 
     # — Settings: Style —
     "settings_style_userlike": "👤 Style: Userlike",

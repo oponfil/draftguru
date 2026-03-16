@@ -13,6 +13,7 @@ from handlers.pyrogram_handlers import (
     _pending_drafts,
     _pending_phone,
     _poll_qr_login,
+    _processed_incoming_ids,
     _reply_locks,
     _reply_pending,
     handle_2fa_password,
@@ -23,11 +24,20 @@ from handlers.pyrogram_handlers import (
     on_pyrogram_draft,
     on_pyrogram_message,
     on_status,
+    _verify_draft_delivery,
 )
 from system_messages import SYSTEM_MESSAGES
 from utils.bot_utils import update_user_menu
 
 TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"]
+
+
+def _close_coroutine_task(coro):
+    """Имитирует create_task в тестах и закрывает coroutine без запуска."""
+    coro.close()
+    task = MagicMock()
+    task.done.return_value = False
+    return task
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +51,7 @@ def cleanup_handler_state():
     _pending_phone.clear()
     _reply_locks.clear()
     _reply_pending.clear()
+    _processed_incoming_ids.clear()
     yield
     _auto_reply_tasks.clear()
     _bot_drafts.clear()
@@ -50,6 +61,7 @@ def cleanup_handler_state():
     _pending_phone.clear()
     _reply_locks.clear()
     _reply_pending.clear()
+    _processed_incoming_ids.clear()
 
 
 class TestOnDisconnect:
@@ -491,7 +503,7 @@ class TestOnPyrogramMessage:
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
              patch("handlers.pyrogram_handlers._regenerate_reply", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.asyncio.create_task") as mock_create_task:
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task) as mock_create_task:
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "other", "text": "Hello"}
             ])
@@ -502,8 +514,8 @@ class TestOnPyrogramMessage:
 
         # generate_reply был вызван (первое сообщение обработано)
         mock_gen.assert_called_once()
-        # _regenerate_reply запущена через create_task
-        mock_create_task.assert_called_once()
+        # create_task вызван 2 раза: _verify_draft_delivery + _regenerate_reply
+        assert mock_create_task.call_count == 2
         # Лок снят после завершения
         assert (123, 456) not in _reply_locks
         assert (123, 456) not in _reply_pending
@@ -525,7 +537,7 @@ class TestOnPyrogramMessage:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
-             patch("handlers.pyrogram_handlers.asyncio.create_task") as mock_create_task:
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task) as mock_create_task:
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "other", "text": "Hello"}
             ])
@@ -535,9 +547,44 @@ class TestOnPyrogramMessage:
             await on_pyrogram_message(123, MagicMock(), message)
 
         mock_gen.assert_called_once()
-        mock_create_task.assert_not_called()
+        # create_task вызван только для _verify_draft_delivery (без _regenerate_reply)
+        assert mock_create_task.call_count == 1
         assert (123, 456) not in _reply_locks
         assert (123, 456) not in _reply_pending
+
+    @pytest.mark.asyncio
+    async def test_duplicate_message_is_skipped(self):
+        """Повторное сообщение с тем же msg_id пропускается (дедупликация)."""
+        message = MagicMock()
+        message.text = "Hello"
+        message.voice = None
+        message.sticker = None
+        message.id = 999
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.from_user.first_name = "Test"
+        message.chat = MagicMock()
+        message.chat.id = 456
+        message.chat.type = MagicMock(value="private")
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_gen.return_value = "Hi there!"
+
+            # Первый вызов — обрабатывается
+            await on_pyrogram_message(123, MagicMock(), message)
+            assert mock_gen.call_count == 1
+
+            # Второй вызов с тем же msg_id — пропускается
+            await on_pyrogram_message(123, MagicMock(), message)
+            assert mock_gen.call_count == 1  # не увеличился
 
 
 class TestHandle2FAPassword:
@@ -694,6 +741,53 @@ class TestOnPyrogramDraft:
         mock_pc.set_draft.assert_any_call(123, 456, TYPING_TEXT)
         mock_pc.set_draft.assert_any_call(123, 456, "AI ответ")
         mock_gen.assert_called_once()
+
+
+class TestVerifyDraftDelivery:
+    """Тесты для _verify_draft_delivery()."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_user_already_cleared_draft(self):
+        """Если пользователь уже удалил черновик — re-push пропускается."""
+        # _bot_drafts пуст — пользователь уже очистил
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
+            mock_pc.set_draft = AsyncMock()
+
+            await _verify_draft_delivery(123, 456, "AI ответ")
+
+        # set_draft не вызван — re-push пропущен
+        mock_pc.set_draft.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_re_pushes_draft_when_server_matches(self):
+        """Server draft совпадает — повторно отправляем (extra push)."""
+        _bot_drafts[(123, 456)] = "AI ответ"
+
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
+            mock_pc.get_draft = AsyncMock(return_value="AI ответ")
+            mock_pc.set_draft = AsyncMock(return_value=True)
+
+            await _verify_draft_delivery(123, 456, "AI ответ")
+
+        mock_pc.get_draft.assert_called_once_with(123, 456)
+        mock_pc.set_draft.assert_called_once_with(123, 456, "AI ответ")
+
+    @pytest.mark.asyncio
+    async def test_skips_re_push_when_user_edited_draft(self):
+        """Пользователь отредактировал draft — re-push пропускается."""
+        _bot_drafts[(123, 456)] = "AI ответ"
+
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
+            mock_pc.get_draft = AsyncMock(return_value="AI ответ + мои правки")
+            mock_pc.set_draft = AsyncMock()
+
+            await _verify_draft_delivery(123, 456, "AI ответ")
+
+        mock_pc.get_draft.assert_called_once_with(123, 456)
+        mock_pc.set_draft.assert_not_called()
 
 
 class TestUpdateUserMenu:

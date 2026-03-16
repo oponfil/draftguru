@@ -22,7 +22,7 @@ from config import (
     PYROGRAM_API_ID, PYROGRAM_API_HASH, DEBUG_PRINT,
     PHONE_CODE_TIMEOUT_SECONDS,
     QR_LOGIN_TIMEOUT_SECONDS, QR_LOGIN_POLL_INTERVAL,
-    DRAFT_PROBE_DELAY, STYLE_PRO_MODELS, STICKER_FALLBACK_EMOJI,
+    DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, STYLE_PRO_MODELS, STICKER_FALLBACK_EMOJI,
 )
 from utils.utils import format_chat_history, get_timestamp, normalize_auto_reply, typing_action
 from utils.bot_utils import update_user_menu
@@ -843,6 +843,48 @@ async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ====== PYROGRAM CALLBACK ======
 
+# Дедупликация: Pyrogram может доставить один update через MessageHandler и RawUpdateHandler
+# одновременно. {(user_id, chat_id): {msg_id, ...}}
+_processed_incoming_ids: dict[tuple, set[int]] = {}
+_PROCESSED_INCOMING_MAX = 50  # макс. размер set на чат
+
+
+async def _verify_draft_delivery(user_id: int, chat_id: int, expected_text: str) -> None:
+    """Повторно отправляет AI-черновик через DRAFT_VERIFY_DELAY секунд.
+
+    Проверки перед re-push:
+    1. _bot_drafts уже очищен (пользователь удалил / регенерация) — пропускаем.
+    2. Фактический draft на сервере отличается от expected — пользователь
+       отредактировал, не перезаписываем.
+    """
+    try:
+        await asyncio.sleep(DRAFT_VERIFY_DELAY)
+
+        key = (user_id, chat_id)
+        # Пользователь уже очистил/отправил черновик или началась регенерация
+        if _bot_drafts.get(key) != expected_text:
+            return
+
+        # Проверяем фактический draft на сервере — если пользователь
+        # отредактировал, а on_pyrogram_draft задержался, не перезаписываем
+        actual = await pyrogram_client.get_draft(user_id, chat_id)
+        if actual is not None and actual != expected_text:
+            if DEBUG_PRINT:
+                print(
+                    f"{get_timestamp()} [DRAFT] Skipping re-push for user {user_id} "
+                    f"in chat {chat_id}: user edited draft"
+                )
+            return
+
+        await pyrogram_client.set_draft(user_id, chat_id, expected_text)
+        if DEBUG_PRINT:
+            print(
+                f"{get_timestamp()} [DRAFT] Re-pushed draft for user {user_id} "
+                f"in chat {chat_id}: {len(expected_text)} chars"
+            )
+    except Exception:
+        pass  # не ломаем основной поток
+
 async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -> None:
     """Вызывается при новом входящем сообщении в любом чате пользователя."""
     text = message.text
@@ -876,12 +918,29 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         return
 
     chat_id = message.chat.id
+
+    # Saved Messages (чат с самим собой) — пропускаем
+    if chat_id == user_id:
+        return
+
     key = (user_id, chat_id)
 
     # Запоминаем ID последнего обработанного сообщения для polling
     msg_id = getattr(message, "id", None)
     if isinstance(msg_id, int):
         _last_seen_msg_id[key] = max(msg_id, _last_seen_msg_id.get(key, 0))
+
+        # Дедупликация: пропускаем если уже обработали
+        seen = _processed_incoming_ids.setdefault(key, set())
+        if msg_id in seen:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [PYROGRAM] Duplicate message {msg_id} for user {user_id} in chat {chat_id}, skipping")
+            return
+        seen.add(msg_id)
+        # Чистим старые ID
+        if len(seen) > _PROCESSED_INCOMING_MAX:
+            oldest = sorted(seen)[:len(seen) - _PROCESSED_INCOMING_MAX]
+            seen.difference_update(oldest)
 
     # Читаем пользователя и настройки одним запросом
     user = await get_user(user_id)
@@ -963,6 +1022,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply set as draft for user {user_id} in chat {chat_id}")
+        asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
         auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
@@ -996,8 +1056,10 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         user_settings = (user or {}).get("settings") or {}
         lang = (user or {}).get("language_code")
 
-        # Показываем пробу
+        # Показываем пробу (и обновляем _bot_drafts, чтобы _verify_draft_delivery
+        # от предыдущего ответа не сделала ложный retry)
         probe_text = await get_system_message(lang, "draft_typing")
+        _bot_drafts[key] = probe_text
         _bot_draft_echoes[key] = probe_text
         await pyrogram_client.set_draft(user_id, chat_id, probe_text)
 
@@ -1042,6 +1104,7 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply re-generated for user {user_id} in chat {chat_id}")
+        asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
         if auto_reply:
@@ -1120,6 +1183,10 @@ async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds
 async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None:
     """Вызывается при обновлении черновика — probe-based detection."""
     key = (user_id, chat_id)
+
+    # Saved Messages (чат с самим собой) — пропускаем
+    if chat_id == user_id:
+        return
 
     # Игнорируем черновики, установленные ботом (пробел или AI-ответ)
     bot_echo_text = _bot_draft_echoes.get(key)
@@ -1230,6 +1297,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
 
         print(f"{get_timestamp()} [DRAFT] Response set as draft for user {user_id} in chat {chat_id}")
+        asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
         auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
@@ -1258,6 +1326,10 @@ async def poll_missed_messages(user_id: int) -> int:
     found = 0
 
     for chat_id in chat_ids:
+        # Saved Messages — пропускаем
+        if chat_id == user_id:
+            continue
+
         key = (user_id, chat_id)
 
         # Пропускаем чаты, где уже идёт генерация или стоит бот-черновик

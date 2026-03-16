@@ -64,10 +64,10 @@ def main() -> None:
     # Регистрируем обработчики
     app.add_handler(CommandHandler("start", on_start, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CommandHandler("connect", on_connect, filters=PRIVATE_ONLY_FILTER))
-    app.add_handler(CommandHandler("disconnect", on_disconnect, filters=PRIVATE_ONLY_FILTER))
-    app.add_handler(CommandHandler("status", on_status, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CommandHandler("settings", on_settings, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CallbackQueryHandler(on_settings_callback, pattern=r"^settings:"))
+    app.add_handler(CommandHandler("status", on_status, filters=PRIVATE_ONLY_FILTER))
+    app.add_handler(CommandHandler("disconnect", on_disconnect, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CallbackQueryHandler(on_connect_qr_callback, pattern=r"^connect:qr$"))
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, handle_connect_text), group=0)
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, on_text), group=1)
@@ -85,9 +85,9 @@ async def post_init(app: Application) -> None:
     """Выполняется после инициализации приложения."""
     # Глобальное меню (без connect/disconnect — они устанавливаются per-user)
     await app.bot.set_my_commands([
+        BotCommand("settings", "Settings"),
         BotCommand("status", "Connection status"),
         BotCommand("connect", "Connect account"),
-        BotCommand("settings", "Settings"),
     ])
 
     # Восстанавливаем Pyrogram-сессии

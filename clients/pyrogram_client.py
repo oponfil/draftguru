@@ -433,6 +433,35 @@ async def set_draft(user_id: int, chat_id: int, text: str) -> bool:
         return False
 
 
+async def get_draft(user_id: int, chat_id: int) -> str | None:
+    """Читает текущий черновик из чата через GetPeerDialogs.
+
+    Returns:
+        Текст черновика или None если черновика нет / ошибка.
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return None
+
+    try:
+        peer = await client.resolve_peer(chat_id)
+        result = await client.invoke(
+            raw.functions.messages.GetPeerDialogs(
+                peers=[raw.types.InputDialogPeer(peer=peer)]
+            )
+        )
+        for dialog in result.dialogs:
+            draft = getattr(dialog, "draft", None)
+            if draft and hasattr(draft, "message"):
+                return draft.message
+        return None
+
+    except Exception as e:
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [PYROGRAM] ERROR reading draft from chat {chat_id}: {e}")
+        return None
+
+
 async def send_message(user_id: int, chat_id: int, text: str) -> bool:
     """Отправляет сообщение от имени пользователя через Pyrogram.
 
