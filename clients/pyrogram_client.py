@@ -2,12 +2,13 @@
 
 import asyncio
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from pyrogram import Client, filters, raw
 import pyrogram
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
-from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT
+from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
 from utils.utils import get_timestamp
 
 
@@ -218,15 +219,25 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
     messages = []
     try:
         async for msg in client.get_chat_history(chat_id, limit=limit):
-            if not msg.text:
+            text = msg.text
+            # Стикер → эмодзи как текстовое представление
+            if not text and msg.sticker:
+                text = msg.sticker.emoji or STICKER_FALLBACK_EMOJI
+            if not text:
                 continue
 
             role = "user" if msg.from_user and msg.from_user.id == user_id else "other"
             sender = msg.from_user
+            # Pyrogram uses datetime.fromtimestamp() without tz — returns naive
+            # local time.  Normalize to UTC so that downstream tz_offset math
+            # (in format_chat_history) doesn't double-apply the server offset.
+            date = msg.date
+            if isinstance(date, datetime):
+                date = date.astimezone(timezone.utc)
             messages.append({
                 "role": role,
-                "text": msg.text,
-                "date": msg.date,
+                "text": text,
+                "date": date,
                 "name": sender.first_name if sender else None,
                 "last_name": sender.last_name if sender else None,
                 "username": sender.username if sender else None,
@@ -242,6 +253,57 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
         print(f"{get_timestamp()} [PYROGRAM] ERROR reading chat {chat_id} for user {user_id}: {e}")
 
     return messages
+
+
+async def get_private_dialogs(user_id: int, limit: int = POLL_MISSED_DIALOGS_LIMIT) -> list[int]:
+    """Возвращает список chat_id приватных диалогов пользователя.
+
+    Args:
+        user_id: Telegram user ID
+        limit: Максимальное количество диалогов
+
+    Returns:
+        Список chat_id приватных чатов
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return []
+
+    chat_ids: list[int] = []
+    try:
+        async for dialog in client.get_dialogs(limit):
+            if dialog.chat and dialog.chat.type.value == "private":
+                chat_ids.append(dialog.chat.id)
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR get_private_dialogs for user {user_id}: {e}")
+
+    return chat_ids
+
+
+def get_active_user_ids() -> list[int]:
+    """Возвращает ID пользователей с активными Pyrogram-клиентами."""
+    return list(_active_clients.keys())
+
+
+async def get_last_incoming(user_id: int, chat_id: int) -> "pyrogram.types.Message | None":
+    """Возвращает последнее входящее сообщение в чате (или None).
+
+    Returns:
+        pyrogram.types.Message | None
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return None
+
+    try:
+        async for msg in client.get_chat_history(chat_id, limit=1):
+            if not msg.outgoing:
+                return msg
+            return None  # последнее сообщение — исходящее
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR get_last_incoming for user {user_id} chat {chat_id}: {e}")
+
+    return None
 
 
 async def _handle_draft_update(user_id: int, update: raw.types.UpdateDraftMessage) -> None:

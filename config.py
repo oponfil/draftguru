@@ -51,8 +51,13 @@ STYLE_PRO_MODELS: dict[str | None, str] = {
     "friend": "openai/gpt-5.4",
     "business": "openai/gpt-5.4",
     "sales": "openai/gpt-5.4",
-    "flirt": "google/gemini-3.1-pro-preview",
+    "romance": "openai/gpt-5.4",
     "seducer": "google/gemini-3.1-pro-preview",
+}
+# Уровень reasoning для конкретных моделей (minimal/low/medium/high).
+# Если модели нет в словаре — используется "medium" по умолчанию.
+MODEL_REASONING_EFFORT: dict[str, str] = {
+    "google/gemini-3.1-pro-preview": "low",
 }
 
 # ====== RETRY ======
@@ -76,15 +81,20 @@ PHONE_CODE_TIMEOUT_SECONDS = 120  # Таймаут на ввод кода при
 
 # ====== DRAFT INTERACTION ======
 DRAFT_PROBE_DELAY = 2  # Секунды ожидания после пробы (draft_typing)
+POLL_MISSED_INTERVAL = 60  # Интервал проверки пропущенных сообщений (секунды)
+POLL_MISSED_DIALOGS_LIMIT = 10  # Кол-во последних приватных чатов для проверки
 
 # ====== TELEGRAM BOT ======
 BOT_READ_TIMEOUT = 30  # Таймаут чтения ответа от Telegram API (секунды)
 
 # ====== НАСТРОЙКИ ======
-CUSTOM_PROMPT_MAX_LENGTH = 900  # Макс. длина пользовательского промпта (символы)
+CUSTOM_PROMPT_MAX_LENGTH = 500  # Макс. длина пользовательского промпта (символы)
 
 # ====== ГОЛОСОВЫЕ СООБЩЕНИЯ ======
 VOICE_TRANSCRIPTION_TIMEOUT = 60  # Таймаут ожидания транскрипции (секунды)
+
+# ====== СТИКЕРЫ ======
+STICKER_FALLBACK_EMOJI = "□"  # Fallback для стикеров без привязанного эмодзи (U+25A1)
 
 # ====== АВТООТВЕТ ======
 # {секунды: ключ сообщения} — None = выключено (по умолчанию)
@@ -104,7 +114,7 @@ STYLE_OPTIONS: dict[str | None, str] = {
     "friend": "settings_style_friend",
     "business": "settings_style_business",
     "sales": "settings_style_sales",
-    "flirt": "settings_style_flirt",
+    "romance": "settings_style_romance",
     "seducer": "settings_style_seducer",
 }
 

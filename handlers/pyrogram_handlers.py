@@ -6,6 +6,7 @@ import io
 import random
 import time
 import traceback
+from datetime import datetime, timezone
 
 import qrcode
 from pyrogram import Client
@@ -21,7 +22,7 @@ from config import (
     PYROGRAM_API_ID, PYROGRAM_API_HASH, DEBUG_PRINT,
     PHONE_CODE_TIMEOUT_SECONDS,
     QR_LOGIN_TIMEOUT_SECONDS, QR_LOGIN_POLL_INTERVAL,
-    DRAFT_PROBE_DELAY, STYLE_PRO_MODELS,
+    DRAFT_PROBE_DELAY, STYLE_PRO_MODELS, STICKER_FALLBACK_EMOJI,
 )
 from utils.utils import format_chat_history, get_timestamp, normalize_auto_reply, typing_action
 from utils.bot_utils import update_user_menu
@@ -856,6 +857,11 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
             transcribed_voice = True
             print(f"{get_timestamp()} [PYROGRAM] Voice transcribed for user {user_id} in chat {message.chat.id}: {len(text)} chars")
 
+    # Стикер → используем эмодзи как текстовое представление
+    if not text and message.sticker:
+        emoji = message.sticker.emoji or STICKER_FALLBACK_EMOJI
+        text = emoji
+
     if not text:
         return
 
@@ -871,6 +877,11 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
 
     chat_id = message.chat.id
     key = (user_id, chat_id)
+
+    # Запоминаем ID последнего обработанного сообщения для polling
+    msg_id = getattr(message, "id", None)
+    if isinstance(msg_id, int):
+        _last_seen_msg_id[key] = max(msg_id, _last_seen_msg_id.get(key, 0))
 
     # Читаем пользователя и настройки одним запросом
     user = await get_user(user_id)
@@ -905,10 +916,14 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         history = await pyrogram_client.read_chat_history(user_id, chat_id)
         if transcribed_voice:
             sender = message.from_user
+            # Normalize date to UTC (Pyrogram may return naive local time)
+            voice_date = message.date
+            if isinstance(voice_date, datetime):
+                voice_date = voice_date.astimezone(timezone.utc)
             history.append({
                 "role": "other",
                 "text": text,
-                "date": message.date,
+                "date": voice_date,
                 "name": sender.first_name if sender else None,
                 "last_name": sender.last_name if sender else None,
                 "username": sender.username if sender else None,
@@ -1057,6 +1072,9 @@ _reply_locks: dict[tuple[int, int], bool] = {}
 
 # Флаг «пришло новое сообщение во время генерации»: {(user_id, chat_id): True}
 _reply_pending: dict[tuple[int, int], bool] = {}
+
+# ID последнего обработанного входящего сообщения: {(user_id, chat_id): message_id}
+_last_seen_msg_id: dict[tuple[int, int], int] = {}
 
 
 def _cancel_auto_reply(key: tuple[int, int]) -> None:
@@ -1220,3 +1238,55 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
     except Exception as e:
         print(f"{get_timestamp()} [DRAFT] ERROR processing draft for user {user_id}: {e}")
+
+
+async def poll_missed_messages(user_id: int) -> int:
+    """Проверяет приватные чаты пользователя на пропущенные сообщения.
+
+    Находит входящие сообщения, которые не были обработаны on_pyrogram_message
+    (например, Telegram не доставил update). Для каждого такого сообщения
+    триггерит on_pyrogram_message.
+
+    Returns:
+        Количество найденных пропущенных сообщений.
+    """
+    if not pyrogram_client.is_active(user_id):
+        return 0
+
+    client = pyrogram_client._active_clients.get(user_id)
+    chat_ids = await pyrogram_client.get_private_dialogs(user_id)
+    found = 0
+
+    for chat_id in chat_ids:
+        key = (user_id, chat_id)
+
+        # Пропускаем чаты, где уже идёт генерация или стоит бот-черновик
+        if _reply_locks.get(key) or _bot_drafts.get(key):
+            continue
+
+        msg = await pyrogram_client.get_last_incoming(user_id, chat_id)
+        if not msg:
+            continue
+
+        # Уже обрабатывали — пропускаем
+        if msg.id <= _last_seen_msg_id.get(key, 0):
+            continue
+
+        # Нет текста, голосового или стикера — пропускаем
+        if not msg.text and not msg.voice and not msg.sticker:
+            continue
+
+        if msg.from_user and msg.from_user.is_bot:
+            continue
+
+        if DEBUG_PRINT:
+            print(
+                f"{get_timestamp()} [POLL] Missed message found for user {user_id} "
+                f"in chat {chat_id}: msg_id={msg.id}"
+            )
+        found += 1
+
+        await on_pyrogram_message(user_id, client, msg)
+
+    return found
+

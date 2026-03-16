@@ -1,6 +1,7 @@
 # logic/reply.py — Бизнес-логика генерации ответов
 
 from clients.x402gate.openrouter import generate_response
+from config import LLM_MODEL, MODEL_REASONING_EFFORT
 from prompts import build_reply_prompt
 from utils.utils import format_chat_history
 
@@ -30,9 +31,11 @@ async def generate_reply(
     """
     history_text = format_chat_history(chat_history, user_info, opponent_info, tz_offset=tz_offset)
 
+    effective_model = model or LLM_MODEL
     kwargs: dict = {
         "user_message": history_text,
         "system_prompt": build_reply_prompt(custom_prompt=custom_prompt, style=style),
+        "reasoning_effort": MODEL_REASONING_EFFORT.get(effective_model, "medium"),
     }
     if model:
         kwargs["model"] = model

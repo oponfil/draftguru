@@ -167,7 +167,7 @@ class TestOnText:
     @pytest.mark.asyncio
     async def test_prompt_too_long_is_truncated_saved_and_reported(self, mock_update, mock_context):
         """Слишком длинный промпт обрезается, сохраняется и сообщает об этом."""
-        mock_update.message.text = "A" * 901
+        mock_update.message.text = "A" * 501
         mock_context.user_data["awaiting_prompt"] = True
 
         with patch("handlers.bot_handlers.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update_settings, \
@@ -176,7 +176,7 @@ class TestOnText:
 
         mock_update_settings.assert_called_once_with(
             mock_update.effective_user.id,
-            {"custom_prompt": "A" * 900},
+            {"custom_prompt": "A" * 500},
         )
         mock_update.message.reply_text.assert_called_once_with("Промпт обрезан и сохранён")
         assert "awaiting_prompt" not in mock_context.user_data

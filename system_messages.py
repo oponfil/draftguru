@@ -81,7 +81,7 @@ SYSTEM_MESSAGES = {
 
     # — Settings: Style —
     "settings_style_userlike": "👤 Style: Userlike",
-    "settings_style_flirt": "💋 Style: Flirt Guru",
+    "settings_style_romance": "💕 Style: Romance Guru",
     "settings_style_business": "💼 Style: Business Guru",
     "settings_style_sales": "💰 Style: Sales Guru",
     "settings_style_friend": "🍻 Style: Friend Guru",

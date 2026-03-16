@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from clients import pyrogram_client
+from config import STICKER_FALLBACK_EMOJI
 
 
 class TestSetCallbacks:
@@ -142,6 +143,7 @@ class TestReadChatHistory:
 
         msg3 = MagicMock()
         msg3.text = None  # Без текста — пропускается
+        msg3.sticker = None  # И не стикер
 
         async def mock_get_history(*args, **kwargs):
             for m in [msg1, msg2, msg3]:
@@ -158,6 +160,48 @@ class TestReadChatHistory:
         assert result[1]["role"] == "user"   # msg1 reversed second
 
         # Cleanup
+        del pyrogram_client._active_clients[300]
+
+    @pytest.mark.asyncio
+    async def test_stickers_included_as_emoji(self):
+        """Стикеры попадают в историю как эмодзи."""
+        mock_client = AsyncMock()
+
+        msg_text = MagicMock()
+        msg_text.text = "Привет"
+        msg_text.sticker = None
+        msg_text.from_user = MagicMock()
+        msg_text.from_user.id = 300
+
+        msg_sticker = MagicMock()
+        msg_sticker.text = None
+        msg_sticker.sticker = MagicMock()
+        msg_sticker.sticker.emoji = "😂"
+        msg_sticker.from_user = MagicMock()
+        msg_sticker.from_user.id = 400
+
+        msg_sticker_no_emoji = MagicMock()
+        msg_sticker_no_emoji.text = None
+        msg_sticker_no_emoji.sticker = MagicMock()
+        msg_sticker_no_emoji.sticker.emoji = None  # Без эмодзи → STICKER_FALLBACK_EMOJI
+        msg_sticker_no_emoji.from_user = MagicMock()
+        msg_sticker_no_emoji.from_user.id = 400
+
+        async def mock_get_history(*args, **kwargs):
+            for m in [msg_sticker_no_emoji, msg_sticker, msg_text]:
+                yield m
+
+        mock_client.get_chat_history = mock_get_history
+        pyrogram_client._active_clients[300] = mock_client
+
+        result = await pyrogram_client.read_chat_history(300, 400, limit=10)
+
+        assert len(result) == 3
+        # Reversed: msg_text → msg_sticker → msg_sticker_no_emoji
+        assert result[0]["text"] == "Привет"
+        assert result[1]["text"] == "😂"
+        assert result[2]["text"] == STICKER_FALLBACK_EMOJI
+
         del pyrogram_client._active_clients[300]
 
 

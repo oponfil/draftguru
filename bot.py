@@ -1,5 +1,6 @@
 # bot.py — Telegram-бот TalkGuru (запуск и конфигурация)
 
+import asyncio
 import os
 import traceback
 
@@ -19,7 +20,7 @@ from telegram.ext import (  # noqa: E402
     ContextTypes, filters,
 )
 
-from config import BOT_TOKEN, BOT_READ_TIMEOUT  # noqa: E402
+from config import BOT_TOKEN, BOT_READ_TIMEOUT, POLL_MISSED_INTERVAL, DEBUG_PRINT  # noqa: E402
 from utils.utils import get_timestamp  # noqa: E402
 from clients import pyrogram_client  # noqa: E402
 from handlers.bot_handlers import on_start, on_text  # noqa: E402
@@ -27,6 +28,7 @@ from handlers.pyrogram_handlers import (  # noqa: E402
     on_disconnect, on_connect, on_status, handle_connect_text,
     on_connect_qr_callback,
     on_pyrogram_message, on_pyrogram_draft,
+    poll_missed_messages,
 )
 from handlers.settings_handler import on_settings, on_settings_callback  # noqa: E402
 from utils.pyrogram_utils import restore_sessions  # noqa: E402
@@ -90,6 +92,27 @@ async def post_init(app: Application) -> None:
 
     # Восстанавливаем Pyrogram-сессии
     await restore_sessions(app)
+
+    # Запускаем фоновый polling пропущенных сообщений
+    global _poll_task
+    _poll_task = asyncio.create_task(_poll_missed_loop())
+
+
+_poll_task: asyncio.Task | None = None
+
+
+async def _poll_missed_loop() -> None:
+    """Фоновый цикл проверки пропущенных сообщений для всех активных пользователей."""
+    while True:
+        await asyncio.sleep(POLL_MISSED_INTERVAL)
+        try:
+            active_users = pyrogram_client.get_active_user_ids()
+            for user_id in active_users:
+                found = await poll_missed_messages(user_id)
+                if found and DEBUG_PRINT:
+                    print(f"{get_timestamp()} [POLL] Found {found} missed message(s) for user {user_id}")
+        except Exception as e:
+            print(f"{get_timestamp()} [POLL] ERROR: {e}")
 
 
 if __name__ == "__main__":
