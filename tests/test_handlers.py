@@ -9,11 +9,13 @@ from handlers.pyrogram_handlers import (
     _auto_reply_tasks,
     _bot_drafts,
     _bot_draft_echoes,
+    _maybe_schedule_auto_reply,
     _pending_2fa,
     _pending_drafts,
     _pending_phone,
     _poll_qr_login,
     _processed_incoming_ids,
+    _regenerate_reply,
     _reply_locks,
     _reply_pending,
     handle_2fa_password,
@@ -25,6 +27,7 @@ from handlers.pyrogram_handlers import (
     on_pyrogram_message,
     on_status,
     _verify_draft_delivery,
+    poll_missed_messages,
 )
 from system_messages import SYSTEM_MESSAGES
 from utils.bot_utils import update_user_menu
@@ -412,6 +415,7 @@ class TestOnPyrogramMessage:
             mock_pc.transcribe_voice = AsyncMock(return_value="Привет, как дела?")
             mock_pc.read_chat_history = AsyncMock(return_value=[])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Всё отлично!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -479,6 +483,7 @@ class TestOnPyrogramMessage:
                 {"role": "other", "text": "Hello"}
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -511,6 +516,7 @@ class TestOnPyrogramMessage:
                 {"role": "other", "text": "Hello"}
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -538,6 +544,7 @@ class TestOnPyrogramMessage:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}):
             mock_pc.set_draft = AsyncMock()
+            mock_pc.get_draft = AsyncMock(return_value=None)
 
             await on_pyrogram_message(123, MagicMock(), message)
 
@@ -573,6 +580,7 @@ class TestOnPyrogramMessage:
                 {"role": "other", "text": "Hello"}
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -607,6 +615,7 @@ class TestOnPyrogramMessage:
                 {"role": "other", "text": "Hello"}
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -641,9 +650,8 @@ class TestOnPyrogramMessage:
                 {"role": "other", "text": "Hello"}
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Hi there!"
-
-            # Первый вызов — обрабатывается
             await on_pyrogram_message(123, MagicMock(), message)
             assert mock_gen.call_count == 1
 
@@ -792,7 +800,8 @@ class TestOnPyrogramDraft:
              patch("handlers.pyrogram_handlers.generate_response", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("utils.utils.DEFAULT_PRO_MODEL", True):
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "user", "text": "Привет"},
             ])
@@ -805,6 +814,7 @@ class TestOnPyrogramDraft:
         assert mock_pc.set_draft.call_count == 2
         mock_pc.set_draft.assert_any_call(123, 456, "AI ответ")
         mock_gen.assert_called_once()
+        assert "model" in mock_gen.call_args.kwargs
 
     @pytest.mark.asyncio
     async def test_emoji_shortcut_resets_style(self):
@@ -1119,6 +1129,49 @@ class TestConnectPhoneFlow:
         assert user_id not in _pending_phone
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("masked_code", ["1-2-3-4-5", "12x345", "1 2 3 4 5", "1.2.3.4.5", "1a2b3c4d5"])
+    async def test_phone_code_strips_separators(self, mock_update, mock_context, masked_code):
+        """Код с разделителями (1-2-3-4-5, 12x345 и т.д.) → стрипится до цифр."""
+        user_id = mock_update.effective_user.id
+        mock_client = AsyncMock()
+        mock_client.export_session_string = AsyncMock(return_value="session-phone")
+
+        user_obj = MagicMock()
+        user_obj.id = 777
+        user_obj.bot = False
+        auth_result = MagicMock()
+        auth_result.user = user_obj
+        mock_client.sign_in = AsyncMock(return_value=auth_result)
+        mock_client.storage.user_id = AsyncMock()
+        mock_client.storage.is_bot = AsyncMock()
+
+        _pending_phone[user_id] = {
+            "state": "awaiting_code",
+            "client": mock_client,
+            "phone_number": "+1234567890",
+            "phone_code_hash": "hash123",
+            "language_code": "en",
+            "chat_id": mock_update.effective_chat.id,
+        }
+
+        mock_update.message.text = masked_code
+
+        with patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+            mock_pc.start_listening = AsyncMock(return_value=True)
+
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_connect_text(mock_update, mock_context)
+
+        # sign_in получает чистые цифры, без разделителей
+        mock_client.sign_in.assert_called_once_with(
+            phone_number="+1234567890",
+            phone_code_hash="hash123",
+            phone_code="12345",
+        )
+
+    @pytest.mark.asyncio
     async def test_phone_code_invalid_shows_error(self, mock_update, mock_context):
         """Неправильный код → ошибка, остаёмся в awaiting_code."""
         user_id = mock_update.effective_user.id
@@ -1138,7 +1191,7 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        mock_update.message.text = "99999"
+        mock_update.message.text = "9x9x9x9x9"
 
         with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Invalid code"):
             with pytest.raises(ApplicationHandlerStop):
@@ -1149,6 +1202,39 @@ class TestConnectPhoneFlow:
         )
         # Остаёмся в awaiting_code
         assert _pending_phone[user_id]["state"] == "awaiting_code"
+
+    @pytest.mark.asyncio
+    async def test_phone_code_invalid_pure_digits_shows_no_separator_hint(self, mock_update, mock_context):
+        """Чистые цифры без разделителя + PhoneCodeInvalid → hint про разделитель."""
+        user_id = mock_update.effective_user.id
+        mock_client = AsyncMock()
+
+        class PhoneCodeInvalid(Exception):
+            pass
+
+        mock_client.sign_in = AsyncMock(side_effect=PhoneCodeInvalid())
+
+        _pending_phone[user_id] = {
+            "state": "awaiting_code",
+            "client": mock_client,
+            "phone_number": "+1234567890",
+            "phone_code_hash": "hash123",
+            "language_code": "en",
+            "chat_id": mock_update.effective_chat.id,
+        }
+
+        mock_update.message.text = "99999"
+
+        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock) as mock_msg:
+            mock_msg.return_value = "No separator hint"
+            with pytest.raises(ApplicationHandlerStop):
+                await handle_connect_text(mock_update, mock_context)
+            # Должен запросить connect_code_no_separator, а не connect_code_invalid
+            mock_msg.assert_any_call("en", "connect_code_no_separator")
+
+        # Flow завершён — код сожжён, нужен /connect заново
+        assert user_id not in _pending_phone
+        mock_client.disconnect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_phone_code_expired_shows_error(self, mock_update, mock_context):
@@ -1170,7 +1256,7 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        mock_update.message.text = "12345"
+        mock_update.message.text = "1x2345"
 
         with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Code expired"):
             with pytest.raises(ApplicationHandlerStop):
@@ -1437,3 +1523,128 @@ class TestConnectPhoneFlow:
         mock_context.bot.send_message.assert_called_once_with(
             chat_id=mock_update.effective_chat.id, text="Timed out",
         )
+
+
+class TestIgnoredChatIDs:
+    """IGNORED_CHAT_IDS (777000 и т.д.) полностью игнорируются."""
+
+    @pytest.mark.asyncio
+    async def test_on_pyrogram_message_skips_ignored_chat(self):
+        """on_pyrogram_message → return early для IGNORED_CHAT_IDS."""
+        message = MagicMock()
+        message.text = "Service notification"
+        message.voice = None
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.chat = MagicMock()
+        message.chat.id = 777000
+        message.chat.type = MagicMock(value="private")
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock) as mock_get:
+            mock_pc.read_chat_history = AsyncMock()
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        mock_get.assert_not_called()
+        mock_pc.read_chat_history.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_pyrogram_draft_skips_ignored_chat(self):
+        """on_pyrogram_draft → return early для IGNORED_CHAT_IDS."""
+        with patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock) as mock_get:
+            await on_pyrogram_draft(user_id=123, chat_id=777000, draft_text="hello")
+
+        mock_get.assert_not_called()
+
+    def test_maybe_schedule_auto_reply_skips_ignored_chat(self):
+        """_maybe_schedule_auto_reply → не планирует для IGNORED_CHAT_IDS."""
+        with patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_sched:
+            _maybe_schedule_auto_reply(
+                {"auto_reply": 60}, user_id=123, chat_id=777000, text="hello",
+            )
+
+        mock_sched.assert_not_called()
+
+    def test_maybe_schedule_auto_reply_skips_saved_messages(self):
+        """_maybe_schedule_auto_reply → не планирует для Saved Messages."""
+        with patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_sched:
+            _maybe_schedule_auto_reply(
+                {"auto_reply": 60}, user_id=123, chat_id=123, text="hello",
+            )
+
+        mock_sched.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_poll_missed_skips_ignored_chat(self):
+        """poll_missed_messages → пропускает IGNORED_CHAT_IDS."""
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc:
+            mock_pc.is_active.return_value = True
+            mock_pc._active_clients = {123: MagicMock()}
+            mock_pc.get_private_dialogs = AsyncMock(return_value=[777000])
+            mock_pc.get_last_message = AsyncMock()
+
+            found = await poll_missed_messages(123)
+
+        assert found == 0
+        mock_pc.get_last_message.assert_not_called()
+
+
+class TestDefaultProModelRuntime:
+    """Новый пользователь (пустые settings) получает PRO-модель в рантайме."""
+
+    @pytest.mark.asyncio
+    async def test_on_pyrogram_message_uses_pro_model_by_default(self):
+        """on_pyrogram_message → settings={} → generate_reply с PRO-моделью."""
+        message = MagicMock()
+        message.text = "Hello"
+        message.voice = None
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.from_user.first_name = "Test"
+        message.from_user.last_name = None
+        message.from_user.username = None
+        message.from_user.language_code = "en"
+        message.from_user.is_premium = False
+        message.chat = MagicMock()
+        message.chat.id = 456
+        message.chat.type = MagicMock(value="private")
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("utils.utils.DEFAULT_PRO_MODEL", True):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_gen.return_value = "Hi there!"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        call_kwargs = mock_gen.call_args.kwargs
+        assert "model" in call_kwargs, "Empty settings should use PRO model by default"
+
+    @pytest.mark.asyncio
+    async def test_regenerate_reply_uses_pro_model_by_default(self):
+        """_regenerate_reply → settings={} → generate_reply с PRO-моделью."""
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task), \
+             patch("utils.utils.DEFAULT_PRO_MODEL", True):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello", "name": "Test"},
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_gen.return_value = "Hi there!"
+
+            await _regenerate_reply(123, 456)
+
+        call_kwargs = mock_gen.call_args.kwargs
+        assert "model" in call_kwargs, "Regeneration should use PRO model by default"

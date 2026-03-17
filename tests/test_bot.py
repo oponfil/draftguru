@@ -107,7 +107,7 @@ class TestOnText:
         ]
 
         with patch("handlers.bot_handlers.MAX_CONTEXT_MESSAGES", 2), \
-             patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {"pro_model": False}}), \
              patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Ответ") as mock_generate:
             await on_text(mock_update, mock_context)
@@ -139,6 +139,20 @@ class TestOnText:
         call_kwargs = mock_generate.call_args.kwargs
         assert call_kwargs["model"] == "google/gemini-3.1-pro-preview"
         assert call_kwargs["reasoning_effort"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_new_user_empty_settings_gets_default_pro_model(self, mock_update, mock_context):
+        """Новый пользователь ({}) → PRO-модель по DEFAULT_PRO_MODEL."""
+        mock_update.message.text = "Hello"
+
+        with patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Reply") as mock_generate, \
+             patch("utils.utils.DEFAULT_PRO_MODEL", True):
+            await on_text(mock_update, mock_context)
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert "model" in call_kwargs, "Empty settings should use PRO model by default"
 
     @pytest.mark.asyncio
     async def test_style_included_in_system_prompt(self, mock_update, mock_context):

@@ -1,9 +1,39 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
 
-from config import AUTO_REPLY_OPTIONS, DEFAULT_STYLE
+from config import AUTO_REPLY_OPTIONS, DEFAULT_PRO_MODEL, DEFAULT_STYLE, STYLE_PRO_MODELS
+
+
+def get_effective_pro_model(settings: dict) -> bool:
+    """Возвращает флаг PRO-модели с учётом дефолта из config."""
+    return settings.get("pro_model", DEFAULT_PRO_MODEL)
+
+
+def get_effective_drafts(settings: dict) -> bool:
+    """Возвращает флаг обработки черновиков с учётом дефолта (True)."""
+    return settings.get("drafts_enabled", True)
+
+
+def get_effective_model(settings: dict, style: str) -> str | None:
+    """Возвращает имя PRO-модели для стиля или None (FREE).
+
+    Args:
+        settings: Настройки пользователя
+        style: Ключ стиля (уже resolved через get_effective_style)
+
+    Returns:
+        Строка модели (e.g. 'openai/gpt-5.4') или None
+    """
+    if not get_effective_pro_model(settings):
+        return None
+    model = STYLE_PRO_MODELS.get(style)
+    if model is None:
+        print(f"{get_timestamp()} WARNING: style {style!r} not in STYLE_PRO_MODELS, using default")
+        model = STYLE_PRO_MODELS[DEFAULT_STYLE]
+    return model
 
 
 def get_timestamp() -> str:
@@ -14,38 +44,42 @@ def get_timestamp() -> str:
 _TYPING_INTERVAL = 4  # Telegram сбрасывает индикатор ~5 сек; обновляем каждые 4
 
 
+@asynccontextmanager
+async def keep_typing(bot, chat_id: int):
+    """Контекст-менеджер: удерживает индикатор 'печатает...' до выхода из блока."""
+    try:
+        await bot.send_chat_action(chat_id=chat_id, action="typing")
+    except Exception:
+        pass
+
+    async def _loop() -> None:
+        try:
+            while True:
+                await asyncio.sleep(_TYPING_INTERVAL)
+                try:
+                    await bot.send_chat_action(chat_id=chat_id, action="typing")
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 def typing_action(func: Callable) -> Callable:
     """Декоратор: удерживает индикатор 'печатает...' на всё время выполнения обработчика."""
     @wraps(func)
     async def wrapper(update, context, *args, **kwargs):
-        chat_id = update.effective_chat.id
-
-        # Первый вызов сразу, чтобы индикатор появился мгновенно
-        try:
-            await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-        except Exception:
-            pass  # Игнорируем ошибки (напр. бот заблокирован)
-
-        async def _keep_typing() -> None:
-            try:
-                while True:
-                    await asyncio.sleep(_TYPING_INTERVAL)
-                    try:
-                        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-                    except Exception:
-                        break  # Прерываем цикл при сетевых или API ошибках
-            except asyncio.CancelledError:
-                pass
-
-        task = asyncio.create_task(_keep_typing())
-        try:
+        async with keep_typing(context.bot, update.effective_chat.id):
             return await func(update, context, *args, **kwargs)
-        finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
     return wrapper
 
 
@@ -176,7 +210,9 @@ def get_effective_auto_reply(settings: dict, chat_id: int | None = None) -> int 
     """
     if chat_id is not None:
         chat_auto_replies = settings.get("chat_auto_replies") or {}
-        per_chat = chat_auto_replies.get(str(chat_id))
-        if per_chat is not None:
-            return normalize_auto_reply(per_chat)
+        chat_key = str(chat_id)
+        if chat_key in chat_auto_replies:
+            per_chat = chat_auto_replies[chat_key]
+            # 0 = явно выключено (OFF), None в JSON невозможен
+            return None if per_chat == 0 else normalize_auto_reply(per_chat)
     return normalize_auto_reply(settings.get("auto_reply"))

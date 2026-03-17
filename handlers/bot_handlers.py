@@ -6,8 +6,8 @@ import traceback
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, DEFAULT_STYLE, LLM_MODEL, MODEL_REASONING_EFFORT, STYLE_PRO_MODELS, MAX_CONTEXT_MESSAGES
-from utils.utils import get_timestamp, typing_action
+from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES
+from utils.utils import get_effective_model, get_timestamp, typing_action
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
@@ -100,7 +100,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Читаем настройки пользователя для выбора модели и стиля
         user_settings = (user or {}).get("settings") or {}
         style = user_settings.get("style")
-        model = STYLE_PRO_MODELS.get(style, STYLE_PRO_MODELS[DEFAULT_STYLE]) if user_settings.get("pro_model") else None
+        model = get_effective_model(user_settings, style)
         effective_model = model or LLM_MODEL
 
         # Генерируем ответ через OpenRouter с историей и стилем

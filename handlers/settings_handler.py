@@ -11,7 +11,7 @@ from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS, TIMEZONE_OFFS
 from database.users import update_last_msg_at, update_user_settings
 from system_messages import get_system_message, get_system_messages
 from utils.telegram_user import ensure_effective_user
-from utils.utils import get_timestamp, normalize_auto_reply, typing_action
+from utils.utils import get_effective_drafts, get_effective_pro_model, get_timestamp, normalize_auto_reply, typing_action
 
 
 def _format_tz_offset(offset: float) -> str:
@@ -37,8 +37,8 @@ def _build_timezone_label(offset: float) -> str:
 
 def _build_settings_keyboard(settings: dict, messages: dict) -> InlineKeyboardMarkup:
     """Формирует InlineKeyboard с текущими настройками пользователя."""
-    drafts_enabled = settings.get("drafts_enabled", True)
-    pro_model = settings.get("pro_model", False)
+    drafts_enabled = get_effective_drafts(settings)
+    pro_model = get_effective_pro_model(settings)
     has_prompt = bool(settings.get("custom_prompt"))
 
     drafts_label = messages.get("settings_drafts_on") if drafts_enabled else messages.get("settings_drafts_off")
@@ -142,7 +142,7 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     settings = user.get("settings") or {}
 
     if action == "settings:drafts":
-        current = settings.get("drafts_enabled", True)
+        current = get_effective_drafts(settings)
         updated_settings = await update_user_settings(
             u.id,
             {"drafts_enabled": not current},
@@ -152,7 +152,7 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             await _send_settings_error(query, u.language_code)
             return
     elif action == "settings:model":
-        current = settings.get("pro_model", False)
+        current = get_effective_pro_model(settings)
         updated_settings = await update_user_settings(
             u.id,
             {"pro_model": not current},

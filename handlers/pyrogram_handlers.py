@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import random
+import re
 import time
 import traceback
 from collections import defaultdict
@@ -23,10 +24,10 @@ from config import (
     PYROGRAM_API_ID, PYROGRAM_API_HASH, DEBUG_PRINT,
     PHONE_CODE_TIMEOUT_SECONDS,
     QR_LOGIN_TIMEOUT_SECONDS, QR_LOGIN_POLL_INTERVAL,
-    DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_PRO_MODELS, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
-    EMOJI_TO_STYLE,
+    DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
+    EMOJI_TO_STYLE, IGNORED_CHAT_IDS,
 )
-from utils.utils import format_chat_history, get_effective_auto_reply, get_effective_style, get_timestamp, typing_action
+from utils.utils import format_chat_history, get_effective_auto_reply, get_effective_drafts, get_effective_model, get_effective_style, get_timestamp, keep_typing, typing_action
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
 from logic.reply import generate_reply
@@ -432,65 +433,68 @@ async def _handle_phone_number(
         pass
 
     client: Client | None = None
-    try:
-        # Создаём временного клиента Pyrogram
-        client = Client(
-            name=f"draftguru_phone_{u.id}",
-            api_id=int(PYROGRAM_API_ID),
-            api_hash=PYROGRAM_API_HASH,
-            in_memory=True,
-            no_updates=True,
-        )
-        await client.connect()
+    chat_id = pending["chat_id"]
 
-        # Отправляем код подтверждения
-        sent_code = await client.send_code(phone_number)
+    async with keep_typing(context.bot, chat_id):
+        try:
+            # Создаём временного клиента Pyrogram
+            client = Client(
+                name=f"draftguru_phone_{u.id}",
+                api_id=int(PYROGRAM_API_ID),
+                api_hash=PYROGRAM_API_HASH,
+                in_memory=True,
+                no_updates=True,
+            )
+            await client.connect()
 
-        # Переводим в состояние ожидания кода
-        _put_pending_phone(u.id, {
-            "state": "awaiting_code",
-            "client": client,
-            "phone_number": phone_number,
-            "phone_code_hash": sent_code.phone_code_hash,
-            "language_code": language_code,
-            "chat_id": pending["chat_id"],
-        })
+            # Отправляем код подтверждения
+            sent_code = await client.send_code(phone_number)
 
-        msg = await get_system_message(language_code, "connect_code_prompt")
-        await context.bot.send_message(chat_id=pending["chat_id"], text=msg)
+            # Переводим в состояние ожидания кода
+            _put_pending_phone(u.id, {
+                "state": "awaiting_code",
+                "client": client,
+                "phone_number": phone_number,
+                "phone_code_hash": sent_code.phone_code_hash,
+                "language_code": language_code,
+                "chat_id": chat_id,
+            })
 
-        if DEBUG_PRINT:
-            print(f"{get_timestamp()} [CONNECT_PHONE] Code sent to user {u.id}")
+            msg = await get_system_message(language_code, "connect_code_prompt")
+            await context.bot.send_message(chat_id=chat_id, text=msg)
 
-    except Exception as e:
-        error_name = type(e).__name__
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [CONNECT_PHONE] Code sent to user {u.id}")
 
-        if "PhoneNumberInvalid" in error_name:
-            _put_pending_phone(u.id, pending)
-            msg = await get_system_message(language_code, "connect_phone_invalid")
-            await context.bot.send_message(chat_id=pending["chat_id"], text=msg)
-            # Остаёмся в awaiting_phone — пользователь может ввести повторно
-            if client is not None:
-                await _safe_disconnect_temp_client(client, u.id)
-            raise ApplicationHandlerStop
+        except Exception as e:
+            error_name = type(e).__name__
 
-        if "FloodWait" in error_name:
-            seconds = getattr(e, "value", getattr(e, "x", 0))
-            msg = await get_system_message(language_code, "connect_flood_wait")
-            msg = msg.replace("{seconds}", str(seconds))
-            await context.bot.send_message(chat_id=pending["chat_id"], text=msg)
+            if "PhoneNumberInvalid" in error_name:
+                _put_pending_phone(u.id, pending)
+                msg = await get_system_message(language_code, "connect_phone_invalid")
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+                # Остаёмся в awaiting_phone — пользователь может ввести повторно
+                if client is not None:
+                    await _safe_disconnect_temp_client(client, u.id)
+                raise ApplicationHandlerStop
+
+            if "FloodWait" in error_name:
+                seconds = getattr(e, "value", getattr(e, "x", 0))
+                msg = await get_system_message(language_code, "connect_flood_wait")
+                msg = msg.replace("{seconds}", str(seconds))
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+                _pending_phone.pop(u.id, None)
+                if client is not None:
+                    await _safe_disconnect_temp_client(client, u.id)
+                raise ApplicationHandlerStop
+
+            print(f"{get_timestamp()} [CONNECT_PHONE] ERROR send_code for user {u.id}: {e}")
+            traceback.print_exc()
+            msg = await get_system_message(language_code, "connect_error")
+            await context.bot.send_message(chat_id=chat_id, text=msg)
             _pending_phone.pop(u.id, None)
             if client is not None:
                 await _safe_disconnect_temp_client(client, u.id)
-            raise ApplicationHandlerStop
-
-        print(f"{get_timestamp()} [CONNECT_PHONE] ERROR send_code for user {u.id}: {e}")
-        traceback.print_exc()
-        msg = await get_system_message(language_code, "connect_error")
-        await context.bot.send_message(chat_id=pending["chat_id"], text=msg)
-        _pending_phone.pop(u.id, None)
-        if client is not None:
-            await _safe_disconnect_temp_client(client, u.id)
 
     raise ApplicationHandlerStop
 
@@ -500,7 +504,10 @@ async def _handle_phone_code(
 ) -> None:
     """Обработка ввода кода подтверждения."""
     u = update.effective_user
-    code = (update.message.text or "").strip()
+    raw_code = (update.message.text or "").strip()
+    # Убираем всё кроме цифр — пользователь вводит код с любыми разделителями
+    # (буквы, пробелы, дефисы и т.д.), чтобы Telegram не распознал login code.
+    code = re.sub(r"\D", "", raw_code)
     client: Client = pending["client"]
     language_code = pending["language_code"]
     chat_id = pending["chat_id"]
@@ -539,14 +546,27 @@ async def _handle_phone_code(
             raise ApplicationHandlerStop
 
         if "PhoneCodeInvalid" in error_name:
-            _put_pending_phone(u.id, pending)
-            msg = await get_system_message(language_code, "connect_code_invalid")
-            await context.bot.send_message(chat_id=chat_id, text=msg)
-            # Остаёмся в awaiting_code
+            if raw_code.isdigit():
+                # Код без разделителя — Telegram сжёг его, /connect заново
+                print(f"{get_timestamp()} [CONNECT_PHONE] WARNING: code without separator for user {u.id}, session burned")
+                msg = await get_system_message(language_code, "connect_code_no_separator")
+                await context.bot.send_message(chat_id=chat_id, text=msg)
+                _pending_phone.pop(u.id, None)
+                await _safe_disconnect_temp_client(client, u.id)
+            else:
+                # Нормальный неверный код — остаёмся в awaiting_code
+                print(f"{get_timestamp()} [CONNECT_PHONE] WARNING: invalid code for user {u.id}")
+                _put_pending_phone(u.id, pending)
+                msg = await get_system_message(language_code, "connect_code_invalid")
+                await context.bot.send_message(chat_id=chat_id, text=msg)
             raise ApplicationHandlerStop
 
         if "PhoneCodeExpired" in error_name:
+            print(f"{get_timestamp()} [CONNECT_PHONE] WARNING: code expired for user {u.id}")
             msg = await get_system_message(language_code, "connect_code_expired")
+            if raw_code.isdigit():
+                hint = await get_system_message(language_code, "connect_code_no_separator")
+                msg = f"{msg}\n\n{hint}"
             await context.bot.send_message(chat_id=chat_id, text=msg)
             _pending_phone.pop(u.id, None)
             await _safe_disconnect_temp_client(client, u.id)
@@ -911,6 +931,20 @@ async def _verify_draft_delivery(user_id: int, chat_id: int, expected_text: str)
     except Exception:
         pass  # не ломаем основной поток
 
+
+async def _is_user_typing(user_id: int, chat_id: int) -> bool:
+    """Проверяет, печатает ли пользователь (есть не-бот-черновик)."""
+    key = (user_id, chat_id)
+    existing = await pyrogram_client.get_draft(user_id, chat_id)
+    if existing and existing.strip() and _bot_drafts.get(key) != existing:
+        if DEBUG_PRINT:
+            print(
+                f"{get_timestamp()} [PYROGRAM] User is typing in chat {chat_id}, "
+                f"skipping generation for user {user_id}"
+            )
+        return True
+    return False
+
 async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -> None:
     """Вызывается при новом входящем сообщении в любом чате пользователя."""
     text = message.text
@@ -945,8 +979,8 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
 
     chat_id = message.chat.id
 
-    # Saved Messages (чат с самим собой) — пропускаем
-    if chat_id == user_id:
+    # Ignored chats: Saved Messages + IGNORED_CHAT_IDS (Telegram service и т.д.)
+    if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
         return
 
     key = (user_id, chat_id)
@@ -984,6 +1018,12 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
     # Когда текущая генерация закончится, она увидит флаг и перегенерирует.
     _cancel_auto_reply(key)
     _bot_drafts.pop(key, None)
+
+    # Если пользователь сейчас печатает — не трогаем чат.
+    # Генерация запустится позже через on_pyrogram_draft, когда пользователь уйдёт.
+    if await _is_user_typing(user_id, chat_id):
+        return
+
     if _reply_locks.get(key):
         _reply_pending[key] = True
         if DEBUG_PRINT:
@@ -1031,12 +1071,9 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         # Генерируем ответ
         kwargs: dict = {}
         style = get_effective_style(user_settings, chat_id)
-        if user_settings.get("pro_model"):
-            pro_model = STYLE_PRO_MODELS.get(style)
-            if pro_model is None:
-                print(f"{get_timestamp()} [PYROGRAM] WARNING: style {style!r} not in STYLE_PRO_MODELS, using default")
-                pro_model = STYLE_PRO_MODELS[DEFAULT_STYLE]
-            kwargs["model"] = pro_model
+        model = get_effective_model(user_settings, style)
+        if model:
+            kwargs["model"] = model
         custom_prompt = user_settings.get("custom_prompt", "")
         tz_offset = user_settings.get("tz_offset", 0) or 0
         reply_text = await generate_reply(history, user, opponent_info, custom_prompt=custom_prompt, style=style, tz_offset=tz_offset, **kwargs)
@@ -1106,11 +1143,9 @@ async def _generate_reply_for_chat(
 
         kwargs: dict = {}
         style = get_effective_style(user_settings, chat_id)
-        if user_settings.get("pro_model"):
-            pro_model = STYLE_PRO_MODELS.get(style)
-            if pro_model is None:
-                pro_model = STYLE_PRO_MODELS[DEFAULT_STYLE]
-            kwargs["model"] = pro_model
+        model = get_effective_model(user_settings, style)
+        if model:
+            kwargs["model"] = model
         custom_prompt = user_settings.get("custom_prompt", "")
         tz_offset = user_settings.get("tz_offset", 0) or 0
         reply_text = await generate_reply(
@@ -1165,6 +1200,10 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         user_settings = (user or {}).get("settings") or {}
         lang = (user or {}).get("language_code")
 
+        # Если пользователь сейчас печатает — не трогаем чат
+        if await _is_user_typing(user_id, chat_id):
+            return
+
         # Показываем пробу (и обновляем _bot_drafts, чтобы _verify_draft_delivery
         # от предыдущего ответа не сделала ложный retry)
         style = get_effective_style(user_settings, chat_id)
@@ -1193,12 +1232,9 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         # Генерируем ответ
         kwargs: dict = {}
         style = get_effective_style(user_settings, chat_id)
-        if user_settings.get("pro_model"):
-            pro_model = STYLE_PRO_MODELS.get(style)
-            if pro_model is None:
-                print(f"{get_timestamp()} [PYROGRAM] WARNING: style {style!r} not in STYLE_PRO_MODELS, using default")
-                pro_model = STYLE_PRO_MODELS[DEFAULT_STYLE]
-            kwargs["model"] = pro_model
+        model = get_effective_model(user_settings, style)
+        if model:
+            kwargs["model"] = model
         custom_prompt = user_settings.get("custom_prompt", "")
         tz_offset = user_settings.get("tz_offset", 0) or 0
         reply_text = await generate_reply(
@@ -1267,6 +1303,9 @@ def _maybe_schedule_auto_reply(
     user_settings: dict, user_id: int, chat_id: int, text: str,
 ) -> None:
     """Запускает таймер автоответа, если per-chat или глобальный auto_reply включён."""
+    # Ignored chats: Saved Messages + IGNORED_CHAT_IDS
+    if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
+        return
     auto_reply = get_effective_auto_reply(user_settings, chat_id)
     if auto_reply:
         _schedule_auto_reply(user_id, chat_id, text, auto_reply)
@@ -1317,8 +1356,8 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
     """Вызывается при обновлении черновика — probe-based detection."""
     key = (user_id, chat_id)
 
-    # Saved Messages (чат с самим собой) — пропускаем
-    if chat_id == user_id:
+    # Ignored chats: Saved Messages + IGNORED_CHAT_IDS
+    if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
         return
 
     # Игнорируем черновики, установленные ботом (пробел или AI-ответ)
@@ -1338,7 +1377,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
     user = await get_user(user_id)
     user_settings = (user or {}).get("settings") or {}
     lang = (user or {}).get("language_code")
-    if not user_settings.get("drafts_enabled", True):
+    if not get_effective_drafts(user_settings):
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [PYROGRAM] Drafts disabled for user {user_id}, skipping draft")
         return
@@ -1453,12 +1492,9 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
                 style=style,
             ),
         }
-        if user_settings.get("pro_model"):
-            pro_model = STYLE_PRO_MODELS.get(style)
-            if pro_model is None:
-                print(f"{get_timestamp()} [DRAFT] WARNING: style {style!r} not in STYLE_PRO_MODELS, using default")
-                pro_model = STYLE_PRO_MODELS[DEFAULT_STYLE]
-            gen_kwargs["model"] = pro_model
+        model = get_effective_model(user_settings, style)
+        if model:
+            gen_kwargs["model"] = model
         response = await generate_response(**gen_kwargs)
         if not response or not response.strip():
             return
@@ -1498,8 +1534,8 @@ async def poll_missed_messages(user_id: int) -> int:
     found = 0
 
     for chat_id in chat_ids:
-        # Saved Messages — пропускаем
-        if chat_id == user_id:
+        # Ignored chats: Saved Messages + IGNORED_CHAT_IDS
+        if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
             continue
 
         key = (user_id, chat_id)

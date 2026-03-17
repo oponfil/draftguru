@@ -92,6 +92,7 @@ BOT_READ_TIMEOUT = 30  # Таймаут чтения ответа от Telegram 
 
 # ====== НАСТРОЙКИ ======
 CUSTOM_PROMPT_MAX_LENGTH = 600  # Макс. длина пользовательского промпта (символы)
+DEFAULT_PRO_MODEL = True  # По умолчанию PRO-модель включена
 
 # ====== ГОЛОСОВЫЕ СООБЩЕНИЯ ======
 VOICE_TRANSCRIPTION_TIMEOUT = 60  # Таймаут ожидания транскрипции (секунды)
@@ -110,6 +111,11 @@ AUTO_REPLY_OPTIONS: dict[int | None, str] = {
     57600: "settings_auto_reply_16h",
 }
 
+# Чаты, полностью игнорируемые ботом (не генерируются черновики и автоответы).
+# Saved Messages (chat_id == user_id) исключается отдельно в коде.
+IGNORED_CHAT_IDS: set[int] = {
+    777000,  # Telegram service notifications
+}
 # ====== СТИЛЬ ОБЩЕНИЯ ======
 
 # Маппинг emoji → стиль (единый источник правды для emoji↔style)

@@ -48,7 +48,7 @@ class TestOnSettings:
         keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         buttons = keyboard.inline_keyboard
         assert len(buttons) == 6
-        assert buttons[0][0].text == MESSAGES["settings_model_free"]
+        assert buttons[0][0].text == MESSAGES["settings_model_pro"]
         assert buttons[1][0].text == MESSAGES["settings_style_userlike"]
         assert buttons[2][0].text == MESSAGES["settings_drafts_on"]
         assert buttons[3][0].text == MESSAGES["settings_prompt_empty"]
@@ -123,23 +123,23 @@ class TestOnSettingsCallback:
         )
 
     @pytest.mark.asyncio
-    async def test_toggles_model_free_to_pro(self, mock_callback_update, mock_context):
-        """Переключает модель из FREE в PRO."""
+    async def test_toggles_model_pro_to_free(self, mock_callback_update, mock_context):
+        """Переключает модель из PRO в FREE."""
         mock_callback_update.callback_query.data = "settings:model"
 
         with patch("handlers.settings_handler.ensure_effective_user", new_callable=AsyncMock,
                     return_value={"settings": {}}), \
-             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value={"pro_model": True}) as mock_update, \
+             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value={"pro_model": False}) as mock_update, \
              patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
             await on_settings_callback(mock_callback_update, mock_context)
 
         mock_update.assert_called_once_with(
             mock_callback_update.effective_user.id,
-            {"pro_model": True},
+            {"pro_model": False},
             current_settings={},
         )
         keyboard = mock_callback_update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
-        assert keyboard.inline_keyboard[0][0].text == MESSAGES["settings_model_pro"]
+        assert keyboard.inline_keyboard[0][0].text == MESSAGES["settings_model_free"]
 
     @pytest.mark.asyncio
     async def test_toggles_model_for_new_user_after_ensure(self, mock_callback_update, mock_context):
@@ -147,13 +147,13 @@ class TestOnSettingsCallback:
         mock_callback_update.callback_query.data = "settings:model"
 
         with patch("handlers.settings_handler.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {}}), \
-             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value={"pro_model": True}) as mock_update, \
+             patch("handlers.settings_handler.update_user_settings", new_callable=AsyncMock, return_value={"pro_model": False}) as mock_update, \
              patch("handlers.settings_handler.get_system_messages", new_callable=AsyncMock, return_value=MESSAGES):
             await on_settings_callback(mock_callback_update, mock_context)
 
         mock_update.assert_called_once_with(
             mock_callback_update.effective_user.id,
-            {"pro_model": True},
+            {"pro_model": False},
             current_settings={},
         )
 

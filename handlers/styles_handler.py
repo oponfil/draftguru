@@ -226,8 +226,14 @@ async def on_auto_reply_callback(update: Update, context: ContextTypes.DEFAULT_T
     idx = options.index(current) if current in options else 0
     next_value = options[(idx + 1) % len(options)]
 
-    # Если совпадает с глобальным — сбрасываем per-chat override (= None)
-    override_value = None if next_value == global_auto_reply else next_value
+    # Если совпадает с глобальным — сбрасываем per-chat override (= None).
+    # Иначе сохраняем: для OFF используем 0 (sentinel), т.к. None = сброс.
+    if next_value == global_auto_reply:
+        override_value = None
+    elif next_value is None:
+        override_value = 0  # 0 = явно OFF
+    else:
+        override_value = next_value
 
     # Сохраняем
     updated_settings = await update_chat_auto_reply(u.id, chat_id, override_value)
