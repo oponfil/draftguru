@@ -32,7 +32,7 @@ class TestTypingAction:
 
     @pytest.mark.asyncio
     async def test_sends_typing_action(self):
-        """Декоратор вызывает send_chat_action('typing') перед обработчиком."""
+        """Декоратор вызывает send_chat_action('typing') хотя бы раз."""
         mock_handler = AsyncMock(return_value=None)
         decorated = typing_action(mock_handler)
 
@@ -43,7 +43,7 @@ class TestTypingAction:
 
         await decorated(update, context)
 
-        context.bot.send_chat_action.assert_called_once_with(
+        context.bot.send_chat_action.assert_called_with(
             chat_id=12345, action="typing"
         )
         mock_handler.assert_called_once_with(update, context)

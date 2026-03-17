@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
@@ -10,14 +11,41 @@ def get_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+_TYPING_INTERVAL = 4  # Telegram сбрасывает индикатор ~5 сек; обновляем каждые 4
+
+
 def typing_action(func: Callable) -> Callable:
-    """Декоратор: отправляет индикатор 'печатает...' перед выполнением обработчика."""
+    """Декоратор: удерживает индикатор 'печатает...' на всё время выполнения обработчика."""
     @wraps(func)
     async def wrapper(update, context, *args, **kwargs):
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, action="typing"
-        )
-        return await func(update, context, *args, **kwargs)
+        chat_id = update.effective_chat.id
+
+        # Первый вызов сразу, чтобы индикатор появился мгновенно
+        try:
+            await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception:
+            pass  # Игнорируем ошибки (напр. бот заблокирован)
+
+        async def _keep_typing() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(_TYPING_INTERVAL)
+                    try:
+                        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                    except Exception:
+                        break  # Прерываем цикл при сетевых или API ошибках
+            except asyncio.CancelledError:
+                pass
+
+        task = asyncio.create_task(_keep_typing())
+        try:
+            return await func(update, context, *args, **kwargs)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     return wrapper
 
 

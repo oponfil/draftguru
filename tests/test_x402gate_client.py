@@ -196,40 +196,42 @@ class TestTopupError:
         assert str(err) == "payment failed"
 
 
-class TestCheckLowBalanceWarning:
-    """Тесты для _check_low_balance_warning()."""
+class TestCheckLowWalletBalance:
+    """Тесты для _check_low_wallet_balance()."""
 
-    def test_warns_when_below_threshold(self, capsys):
-        """Выводит предупреждение если баланс ниже порога."""
+    @pytest.mark.asyncio
+    async def test_warns_when_wallet_below_threshold(self, capsys):
+        """Выводит предупреждение если USDC на кошельке ниже порога."""
         client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
-        client._prepaid_balance = 5.0
 
-        with patch("clients.x402gate.X402GATE_PREPAID_LOW_BALANCE_WARN", 10.0):
-            client._check_low_balance_warning()
+        with patch("clients.x402gate.EVM_WALLET_LOW_BALANCE_WARN", 10.0), \
+             patch.object(client, "_get_wallet_usdc_balance", new_callable=AsyncMock, return_value=5.0):
+            await client._check_low_wallet_balance()
 
         output = capsys.readouterr().out
-        assert "Low prepaid balance" in output
+        assert "Low wallet USDC balance" in output
         assert "$5.0000" in output
 
-    def test_silent_when_above_threshold(self, capsys):
-        """Не выводит предупреждение если баланс выше порога."""
+    @pytest.mark.asyncio
+    async def test_silent_when_wallet_above_threshold(self, capsys):
+        """Не выводит предупреждение если USDC на кошельке выше порога."""
         client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
-        client._prepaid_balance = 15.0
 
-        with patch("clients.x402gate.X402GATE_PREPAID_LOW_BALANCE_WARN", 10.0):
-            client._check_low_balance_warning()
+        with patch("clients.x402gate.EVM_WALLET_LOW_BALANCE_WARN", 10.0), \
+             patch.object(client, "_get_wallet_usdc_balance", new_callable=AsyncMock, return_value=15.0):
+            await client._check_low_wallet_balance()
 
         output = capsys.readouterr().out
         assert output == ""
 
-    def test_silent_when_balance_is_none(self, capsys):
-        """Не выводит предупреждение если баланс неизвестен."""
+    @pytest.mark.asyncio
+    async def test_silent_when_wallet_balance_unavailable(self, capsys):
+        """Не выводит предупреждение если баланс кошелька недоступен."""
         client = X402GateClient(private_key="0x0000000000000000000000000000000000000000000000000000000000000001")
-        client._prepaid_balance = None
 
-        with patch("clients.x402gate.X402GATE_PREPAID_LOW_BALANCE_WARN", 10.0):
-            client._check_low_balance_warning()
+        with patch("clients.x402gate.EVM_WALLET_LOW_BALANCE_WARN", 10.0), \
+             patch.object(client, "_get_wallet_usdc_balance", new_callable=AsyncMock, return_value=None):
+            await client._check_low_wallet_balance()
 
         output = capsys.readouterr().out
         assert output == ""
-

@@ -695,6 +695,17 @@ async def _poll_qr_login(client, user_id: int, language_code: str, bot, chat_id:
                             authorized = True
                             break
                     except Exception as migrate_err:
+                        if "SessionPasswordNeeded" in type(migrate_err).__name__:
+                            _pending_2fa[user_id] = {
+                                "client": client,
+                                "language_code": language_code,
+                                "bot": bot,
+                                "chat_id": chat_id,
+                            }
+                            msg = await get_system_message(language_code, "connect_2fa_prompt")
+                            await bot.send_message(chat_id=chat_id, text=msg)
+                            print(f"{get_timestamp()} [CONNECT_QR] 2FA required after migration for user {user_id}")
+                            return  # НЕ отключаем client — нужен для check_password
                         print(f"{get_timestamp()} [CONNECT_QR] Migration error for user {user_id}: {migrate_err}")
             except Exception as e:
                 type_name = type(e).__name__
@@ -720,6 +731,13 @@ async def _poll_qr_login(client, user_id: int, language_code: str, bot, chat_id:
             msg = await get_system_message(language_code, "connect_timeout")
             await bot.send_message(chat_id=chat_id, text=msg)
             return
+
+        # Сохраняем user_id/is_bot из результата авторизации (без этого struct.pack падает)
+        auth = getattr(result, "authorization", result)
+        user_obj = getattr(auth, "user", None)
+        if user_obj:
+            await client.storage.user_id(user_obj.id)
+            await client.storage.is_bot(getattr(user_obj, "bot", False))
 
         # Получаем session string
         session_string = await client.export_session_string()

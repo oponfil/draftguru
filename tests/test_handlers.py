@@ -245,7 +245,9 @@ class TestOnConnect:
     @pytest.mark.asyncio
     async def test_poll_qr_login_success_saves_session_and_starts_listening(self, mock_bot):
         """Успешный QR login должен сохранить сессию и запустить listener."""
-        login_success = type("LoginTokenSuccess", (), {})()
+        mock_user = MagicMock(id=999, bot=False)
+        mock_auth = MagicMock(user=mock_user)
+        login_success = type("LoginTokenSuccess", (), {"authorization": mock_auth})()
 
         mock_client = AsyncMock()
         mock_client.invoke = AsyncMock(return_value=login_success)
@@ -268,7 +270,9 @@ class TestOnConnect:
 
     @pytest.mark.asyncio
     async def test_poll_qr_login_stops_when_save_session_fails(self, mock_bot):
-        login_success = type("LoginTokenSuccess", (), {})()
+        mock_user = MagicMock(id=999, bot=False)
+        mock_auth = MagicMock(user=mock_user)
+        login_success = type("LoginTokenSuccess", (), {"authorization": mock_auth})()
 
         mock_client = AsyncMock()
         mock_client.invoke = AsyncMock(return_value=login_success)
@@ -288,7 +292,9 @@ class TestOnConnect:
 
     @pytest.mark.asyncio
     async def test_poll_qr_login_clears_session_when_listener_start_fails(self, mock_bot):
-        login_success = type("LoginTokenSuccess", (), {})()
+        mock_user = MagicMock(id=999, bot=False)
+        mock_auth = MagicMock(user=mock_user)
+        login_success = type("LoginTokenSuccess", (), {"authorization": mock_auth})()
 
         mock_client = AsyncMock()
         mock_client.invoke = AsyncMock(return_value=login_success)
@@ -306,6 +312,64 @@ class TestOnConnect:
 
         mock_clear.assert_called_once_with(123)
         mock_bot.send_message.assert_called_once_with(chat_id=456, text="Connect failed")
+
+    @pytest.mark.asyncio
+    async def test_poll_qr_login_stores_user_from_success_result(self, mock_bot):
+        """При LoginTokenSuccess сохраняет user_id/is_bot в storage."""
+        mock_user = MagicMock(id=777, bot=False)
+        mock_auth = MagicMock(user=mock_user)
+        login_success = type("LoginTokenSuccess", (), {"authorization": mock_auth})()
+
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(return_value=login_success)
+        mock_client.export_session_string = AsyncMock(return_value="session-777")
+        mock_client.disconnect = AsyncMock()
+        mock_client.storage = AsyncMock()
+
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="OK"):
+            mock_pc.start_listening = AsyncMock(return_value=True)
+
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+
+        mock_client.storage.user_id.assert_called_with(777)
+        mock_client.storage.is_bot.assert_called_with(False)
+
+    @pytest.mark.asyncio
+    async def test_poll_qr_migration_2fa_enters_pending_2fa(self, mock_bot):
+        """При SESSION_PASSWORD_NEEDED после миграции DC — переход в 2FA flow."""
+        # Первый вызов ExportLoginToken → MigrateTo, второй → ImportLoginToken → 2FA error
+        migrate_result = type("LoginTokenMigrateTo", (), {"dc_id": 5, "token": b"tok"})()
+        session_pwd_error = type("SessionPasswordNeeded", (Exception,), {})()
+
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(side_effect=[migrate_result, session_pwd_error])
+        mock_client.disconnect = AsyncMock()
+        mock_client.session = AsyncMock()
+        mock_client.storage = AsyncMock()
+        mock_client.storage.test_mode = AsyncMock(return_value=False)
+        mock_client.storage.dc_id = AsyncMock()
+        mock_client.storage.auth_key = AsyncMock(return_value=b"key")
+
+        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.Auth") as mock_auth_cls, \
+             patch("handlers.pyrogram_handlers.PyroSession") as mock_pyro_session, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter 2FA password"):
+            mock_auth_cls.return_value.create = AsyncMock(return_value=b"new_key")
+            mock_pyro_session.return_value = AsyncMock()
+
+            await _poll_qr_login(mock_client, 42, "en", mock_bot, 456)
+
+        # Клиент сохранён в _pending_2fa (не отключен)
+        assert 42 in _pending_2fa
+        assert _pending_2fa[42]["client"] is mock_client
+        mock_bot.send_message.assert_called_once_with(chat_id=456, text="Enter 2FA password")
+        mock_client.disconnect.assert_not_called()
+
+        # Cleanup
+        _pending_2fa.pop(42, None)
 
 
 class TestOnPyrogramMessage:

@@ -48,8 +48,8 @@ class TestOnSettings:
         keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         buttons = keyboard.inline_keyboard
         assert len(buttons) == 6
-        assert buttons[0][0].text == MESSAGES["settings_drafts_on"]
-        assert buttons[1][0].text == MESSAGES["settings_model_free"]
+        assert buttons[0][0].text == MESSAGES["settings_model_free"]
+        assert buttons[1][0].text == MESSAGES["settings_drafts_on"]
         assert buttons[2][0].text == MESSAGES["settings_prompt_empty"]
         assert buttons[3][0].text == MESSAGES["settings_style_userlike"]
         assert buttons[4][0].text == MESSAGES["settings_auto_reply_off"]
@@ -65,8 +65,8 @@ class TestOnSettings:
 
         keyboard = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         buttons = keyboard.inline_keyboard
-        assert buttons[0][0].text == MESSAGES["settings_drafts_off"]
-        assert buttons[1][0].text == MESSAGES["settings_model_pro"]
+        assert buttons[0][0].text == MESSAGES["settings_model_pro"]
+        assert buttons[1][0].text == MESSAGES["settings_drafts_off"]
 
     @pytest.mark.asyncio
     async def test_invalid_auto_reply_is_shown_as_off(self, mock_update, mock_context):
@@ -139,7 +139,7 @@ class TestOnSettingsCallback:
             current_settings={},
         )
         keyboard = mock_callback_update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
-        assert keyboard.inline_keyboard[1][0].text == MESSAGES["settings_model_pro"]
+        assert keyboard.inline_keyboard[0][0].text == MESSAGES["settings_model_pro"]
 
     @pytest.mark.asyncio
     async def test_toggles_model_for_new_user_after_ensure(self, mock_callback_update, mock_context):
@@ -296,6 +296,7 @@ class TestSettingsKeyboardTimezone:
         tz_row = keyboard.inline_keyboard[5]
         assert len(tz_row) == 2
         assert tz_row[0].callback_data == "settings:timezone_back"
+        assert "🕐" in tz_row[0].text
         assert "UTC0" in tz_row[1].text
         assert tz_row[1].callback_data == "settings:timezone"
 

@@ -90,13 +90,14 @@ SYSTEM_MESSAGES = {
     "settings_auto_reply_15m": "⏰ Auto-reply: ⚠️ 15 min",
     "settings_auto_reply_1h": "⏰ Auto-reply: ⚠️ 1 hour",
     "settings_auto_reply_16h": "⏰ Auto-reply: ⚠️ 16 hours",
+    "settings_timezone_back": "🕐 Time",
 
     # — Settings: Style —
-    "settings_style_userlike": "👤 Style: Userlike",
+    "settings_style_userlike": "🦉 Style: Userlike",        # 👤
     "settings_style_romance": "💕 Style: Romance Guru",
     "settings_style_business": "💼 Style: Business Guru",
     "settings_style_sales": "💰 Style: Sales Guru",
-    "settings_style_friend": "🦉 Style: Friend Guru",       # 🍻
+    "settings_style_friend": "🍻 Style: Friend Guru",       # 🍻
     "settings_style_seducer": "😈 Style: Seducer Guru",
     "settings_style_paranoid": "🕵️ Style: Paranoid Guru",
 }

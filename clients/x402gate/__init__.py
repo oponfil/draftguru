@@ -16,7 +16,7 @@ from x402.mechanisms.evm.signers import EthAccountSigner
 from config import (
     DEBUG_PRINT,
     EVM_PRIVATE_KEY,
-    X402GATE_PREPAID_LOW_BALANCE_WARN,
+    EVM_WALLET_LOW_BALANCE_WARN,
     X402GATE_PREPAID_MIN_BALANCE,
     X402GATE_PREPAID_TOPUP_AMOUNT,
     X402GATE_TIMEOUT,
@@ -27,6 +27,10 @@ from utils.utils import get_timestamp
 
 # Base mainnet chain ID (CAIP-2)
 BASE_MAINNET_CHAIN_ID = "eip155:8453"
+
+# Base mainnet USDC contract (Circle, 6 decimals)
+BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+BASE_RPC_URL = "https://mainnet.base.org"
 
 
 class TopupError(RuntimeError):
@@ -204,13 +208,16 @@ class X402GateClient:
                 self._prepaid_balance = float(result.get("balance", 0))
                 credited = result.get("credited", "?")
 
+                wallet_usdc = await self._get_wallet_usdc_balance()
+                wallet_str = f", wallet=${wallet_usdc:.4f}" if wallet_usdc is not None else ""
+
                 print(
                     f"{get_timestamp()} [X402GATE] ✅ Prepaid top-up OK: "
-                    f"credited=${credited}, balance=${self._prepaid_balance:.4f}"
+                    f"credited=${credited}, balance=${self._prepaid_balance:.4f}{wallet_str}"
                 )
 
                 self._topup_generation += 1
-                self._check_low_balance_warning()
+                await self._check_low_wallet_balance()
                 return self._prepaid_balance
 
         except Exception as e:
@@ -221,7 +228,7 @@ class X402GateClient:
             raise
 
     async def get_balance(self) -> float:
-        """Получает текущий prepaid-баланс с сервера x402gate."""
+        """Получает текущий prepaid-баланс с сервера x402gate и USDC-баланс кошелька."""
         if not self._account:
             raise ValueError("EVM_PRIVATE_KEY is not set.")
 
@@ -234,10 +241,47 @@ class X402GateClient:
             data = response.json()
             self._prepaid_balance = float(data.get("balance", 0))
 
-        if DEBUG_PRINT:
-            print(f"{get_timestamp()} [X402GATE] Prepaid balance: ${self._prepaid_balance:.4f}")
+        # Получаем баланс USDC на кошельке асинхронно, чтобы не блокировать hot path (best-effort)
+        async def _log_wallet_balance():
+            wallet_usdc = await self._get_wallet_usdc_balance()
+            wallet_str = f", wallet=${wallet_usdc:.4f}" if wallet_usdc is not None else ""
+            print(f"{get_timestamp()} [X402GATE] Prepaid balance: ${self._prepaid_balance:.4f}{wallet_str}")
+
+        asyncio.create_task(_log_wallet_balance())
 
         return self._prepaid_balance
+
+    async def _get_wallet_usdc_balance(self) -> float | None:
+        """Запрашивает баланс USDC на кошельке через Base RPC (best-effort)."""
+        if not self._account:
+            return None
+
+        try:
+            # ERC-20 balanceOf(address) selector = 0x70a08231
+            padded_address = self._account.address[2:].lower().zfill(64)
+            call_data = f"0x70a08231{padded_address}"
+
+            async with httpx.AsyncClient() as http:
+                response = await http.post(
+                    BASE_RPC_URL,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "eth_call",
+                        "params": [
+                            {"to": BASE_USDC_ADDRESS, "data": call_data},
+                            "latest",
+                        ],
+                    },
+                    timeout=10,
+                )
+                result = response.json().get("result", "0x0")
+                raw_balance = int(result, 16)
+                return raw_balance / 1_000_000  # USDC = 6 decimals
+        except Exception as e:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [X402GATE] Wallet USDC check failed: {e}")
+            return None
 
     # ────────────────────── Prepaid: headers ──────────────────────
 
@@ -320,15 +364,13 @@ class X402GateClient:
 
             return result
 
-    def _check_low_balance_warning(self) -> None:
-        """Логирует предупреждение если баланс ниже порога."""
-        if (
-            self._prepaid_balance is not None
-            and self._prepaid_balance < X402GATE_PREPAID_LOW_BALANCE_WARN
-        ):
+    async def _check_low_wallet_balance(self) -> None:
+        """Логирует предупреждение если USDC на кошельке ниже порога."""
+        wallet_usdc = await self._get_wallet_usdc_balance()
+        if wallet_usdc is not None and wallet_usdc < EVM_WALLET_LOW_BALANCE_WARN:
             print(
-                f"{get_timestamp()} [X402GATE] ⚠️ Low prepaid balance: "
-                f"${self._prepaid_balance:.4f} (threshold=${X402GATE_PREPAID_LOW_BALANCE_WARN:.0f})"
+                f"{get_timestamp()} [X402GATE] ⚠️ Low wallet USDC balance: "
+                f"${wallet_usdc:.4f} (threshold=${EVM_WALLET_LOW_BALANCE_WARN:.0f})"
             )
 
 

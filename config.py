@@ -38,7 +38,7 @@ X402GATE_URL = "https://x402gate.io"
 X402GATE_TIMEOUT = 120  # Таймаут запроса (секунды)
 X402GATE_PREPAID_TOPUP_AMOUNT = 0.5  # Сумма пополнения prepaid ($)
 X402GATE_PREPAID_MIN_BALANCE = 0.10  # Минимальный порог баланса ($)
-X402GATE_PREPAID_LOW_BALANCE_WARN = 10.0  # Порог предупреждения о низком балансе ($)
+EVM_WALLET_LOW_BALANCE_WARN = 10.0  # Порог предупреждения о низком балансе USDC на кошельке ($)
 EVM_PRIVATE_KEY = os.getenv("EVM_PRIVATE_KEY", "")
 
 # ====== ЯЗЫК ======
@@ -118,8 +118,8 @@ STYLE_OPTIONS: dict[str | None, str] = {
     "romance": "settings_style_romance",
     "business": "settings_style_business",
     "sales": "settings_style_sales",
-    "seducer": "settings_style_seducer",
     "paranoid": "settings_style_paranoid",
+    "seducer": "settings_style_seducer",
 }
 
 # ====== ЧАСОВОЙ ПОЯС ======

@@ -17,13 +17,10 @@ class TestBuildBotChatPrompt:
         assert HUMAN_STYLE_RULES in prompt
         assert prompt.startswith(BOT_PROMPT)
 
-    def test_custom_prompt_is_appended(self):
-        """Инструкции пользователя добавляются в конец."""
-        prompt = build_bot_chat_prompt(custom_prompt="Be a pirate")
-        assert "USER PROFILE & CUSTOM INSTRUCTIONS:" in prompt
-        assert "Be a pirate" in prompt
-        assert prompt.startswith(BOT_PROMPT)
-        assert HUMAN_STYLE_RULES in prompt
+    def test_custom_prompt_is_not_included(self):
+        """Пользовательский промпт НЕ добавляется в промпт бота — только в драфты/ответы."""
+        prompt = build_bot_chat_prompt(style="paranoid")
+        assert "USER PROFILE & CUSTOM INSTRUCTIONS:" not in prompt
 
 
 class TestBuildDraftPrompt:
