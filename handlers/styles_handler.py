@@ -17,7 +17,14 @@ from config import (
 from database.users import get_user, update_chat_auto_reply, update_chat_style, update_last_msg_at
 from handlers.pyrogram_handlers import get_replied_chats
 from system_messages import SYSTEM_MESSAGES, get_system_message
-from utils.utils import get_effective_auto_reply, get_effective_style, get_timestamp, normalize_auto_reply, typing_action
+from utils.utils import (
+    get_effective_auto_reply,
+    get_effective_style,
+    get_timestamp,
+    normalize_auto_reply,
+    serialize_user_updates,
+    typing_action,
+)
 
 
 
@@ -96,6 +103,7 @@ def _get_relevant_dialogs(
     return dialogs[:CHAT_STYLES_DIALOGS_LIMIT]
 
 
+@serialize_user_updates
 @typing_action
 async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /chats — показывает per-chat настройки."""
@@ -156,6 +164,7 @@ async def _refresh_keyboard(
     await query.edit_message_text(text=title, reply_markup=keyboard)
 
 
+@serialize_user_updates
 async def on_chats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик нажатия inline-кнопок /chats — циклическое переключение стиля."""
     query = update.callback_query
@@ -199,6 +208,7 @@ async def on_chats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         print(f"{get_timestamp()} [BOT] Style for chat {chat_id} changed to {next_value!r} by user {u.id}")
 
 
+@serialize_user_updates
 async def on_auto_reply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик нажатия кнопки автоответа — циклическое переключение таймера для чата."""
     query = update.callback_query

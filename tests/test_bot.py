@@ -1,10 +1,12 @@
 # tests/test_bot.py — Тесты для bot.py и handlers/bot_handlers.py
 
-from unittest.mock import AsyncMock, MagicMock, patch, ANY
+import asyncio
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
 import bot as bot_module
+import utils.utils as utils_module
 from handlers.bot_handlers import on_start, on_text
 from bot import on_error
 
@@ -253,6 +255,44 @@ class TestOnError:
         await on_error(MagicMock(), mock_context)
 
 
+class TestSerializeUserUpdates:
+    """Тесты для serialize_user_updates()."""
+
+    @pytest.mark.asyncio
+    async def test_runs_same_user_updates_sequentially_and_cleans_up(self):
+        started = asyncio.Event()
+        release_first = asyncio.Event()
+        execution_order: list[str] = []
+
+        @utils_module.serialize_user_updates
+        async def handler(update, context):
+            execution_order.append(f"start-{update.effective_user.id}")
+            if len(execution_order) == 1:
+                started.set()
+                await release_first.wait()
+            execution_order.append(f"end-{update.effective_user.id}")
+
+        update_one = MagicMock()
+        update_one.effective_user.id = 123
+        update_two = MagicMock()
+        update_two.effective_user.id = 123
+        context = MagicMock()
+
+        first_task = asyncio.create_task(handler(update_one, context))
+        await started.wait()
+        second_task = asyncio.create_task(handler(update_two, context))
+        await asyncio.sleep(0)
+
+        assert execution_order == ["start-123"]
+
+        release_first.set()
+        await asyncio.gather(first_task, second_task)
+
+        assert execution_order == ["start-123", "end-123", "start-123", "end-123"]
+        assert utils_module._USER_UPDATE_LOCKS == {}
+        assert dict(utils_module._USER_UPDATE_LOCK_COUNTS) == {}
+
+
 class TestMain:
     """Тесты для main()."""
 
@@ -262,6 +302,7 @@ class TestMain:
 
         fake_builder.token.return_value = fake_builder
         fake_builder.read_timeout.return_value = fake_builder
+        fake_builder.concurrent_updates.return_value = fake_builder
         fake_builder.post_init.return_value = fake_builder
         fake_builder.build.return_value = fake_app
 
@@ -290,4 +331,5 @@ class TestMain:
         assert "ChatType.PRIVATE" in repr(message_handlers[1][0][0])
         mock_pc.set_message_callback.assert_called_once()
         mock_pc.set_draft_callback.assert_called_once()
+        fake_builder.concurrent_updates.assert_called_once_with(True)
         fake_app.run_polling.assert_called_once_with(drop_pending_updates=True)

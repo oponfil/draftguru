@@ -60,7 +60,7 @@ def main() -> None:
     pyrogram_client.set_draft_callback(on_pyrogram_draft)
 
     # Создаём приложение
-    app = Application.builder().token(BOT_TOKEN).read_timeout(BOT_READ_TIMEOUT).post_init(post_init).build()
+    app = Application.builder().token(BOT_TOKEN).read_timeout(BOT_READ_TIMEOUT).concurrent_updates(True).post_init(post_init).build()
 
     # Регистрируем обработчики
     app.add_handler(CommandHandler("start", on_start, filters=PRIVATE_ONLY_FILTER))

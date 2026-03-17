@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -42,6 +43,8 @@ def get_timestamp() -> str:
 
 
 _TYPING_INTERVAL = 4  # Telegram сбрасывает индикатор ~5 сек; обновляем каждые 4
+_USER_UPDATE_LOCKS: dict[int, asyncio.Lock] = {}
+_USER_UPDATE_LOCK_COUNTS: defaultdict[int, int] = defaultdict(int)
 
 
 @asynccontextmanager
@@ -79,6 +82,41 @@ def typing_action(func: Callable) -> Callable:
     @wraps(func)
     async def wrapper(update, context, *args, **kwargs):
         async with keep_typing(context.bot, update.effective_chat.id):
+            return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
+@asynccontextmanager
+async def serialize_user_update_by_id(user_id: int | None):
+    """Сериализует stateful Bot API handlers для одного пользователя."""
+    if user_id is None:
+        yield
+        return
+
+    # No race condition: get → is None → set runs in a single coroutine step (no await).
+    lock = _USER_UPDATE_LOCKS.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _USER_UPDATE_LOCKS[user_id] = lock
+
+    _USER_UPDATE_LOCK_COUNTS[user_id] += 1
+    try:
+        async with lock:
+            yield
+    finally:
+        _USER_UPDATE_LOCK_COUNTS[user_id] -= 1
+        if _USER_UPDATE_LOCK_COUNTS[user_id] == 0:
+            _USER_UPDATE_LOCK_COUNTS.pop(user_id, None)
+            _USER_UPDATE_LOCKS.pop(user_id, None)
+
+
+def serialize_user_updates(func: Callable) -> Callable:
+    """Декоратор: обрабатывает апдейты одного пользователя строго по очереди."""
+    @wraps(func)
+    async def wrapper(update, context, *args, **kwargs):
+        effective_user = getattr(update, "effective_user", None)
+        user_id = getattr(effective_user, "id", None)
+        async with serialize_user_update_by_id(user_id):
             return await func(update, context, *args, **kwargs)
     return wrapper
 

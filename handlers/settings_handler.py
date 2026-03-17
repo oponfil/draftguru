@@ -11,7 +11,14 @@ from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS, TIMEZONE_OFFS
 from database.users import update_last_msg_at, update_user_settings
 from system_messages import get_system_message, get_system_messages
 from utils.telegram_user import ensure_effective_user
-from utils.utils import get_effective_drafts, get_effective_pro_model, get_timestamp, normalize_auto_reply, typing_action
+from utils.utils import (
+    get_effective_drafts,
+    get_effective_pro_model,
+    get_timestamp,
+    normalize_auto_reply,
+    serialize_user_updates,
+    typing_action,
+)
 
 
 def _format_tz_offset(offset: float) -> str:
@@ -98,6 +105,7 @@ async def _send_settings_error(query, language_code: str | None) -> None:
     await query.edit_message_text(text=error_msg)
 
 
+@serialize_user_updates
 @typing_action
 async def on_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /settings — показывает настройки с Inline-кнопками."""
@@ -125,6 +133,7 @@ async def on_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         print(f"{get_timestamp()} [BOT] /settings from user {u.id}")
 
 
+@serialize_user_updates
 async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик нажатия Inline-кнопок настроек."""
     query = update.callback_query

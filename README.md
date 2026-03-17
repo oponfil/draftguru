@@ -1,27 +1,27 @@
 # DraftGuru 🦉
 
-Опенсорсный Telegram-бот, который пишет черновик ответа за вас. Попробовать: [@DraftGuruBot](https://t.me/DraftGuruBot)
+Open-source Telegram bot that drafts replies for you. Try it: [@DraftGuruBot](https://t.me/DraftGuruBot)
 
-🔞 Только для пользователей 18+.
+🔞 For users 18+ only.
 
-## Как работает
+## How It Works
 
-1. 🔌 Подключите аккаунт через `/connect` (телефон или QR-код).
-2. 🦉 Когда вам пишут в личный чат — бот автоматически составляет черновик ответа прямо в поле ввода.
-3. ✏️ В черновике можно написать инструкцию — бот перепишет его, как только вы выйдете из чата.
+1. 🔌 Connect your account via `/connect` (phone number or QR code).
+2. 🦉 When you receive a private message, the bot automatically drafts a reply right in the input field.
+3. ✏️ Write an instruction in the draft — the bot will rewrite it as soon as you leave the chat.
 
-Авто-ответы работают только в личных чатах. Черновики-инструкции работают везде.
+Auto-replies work in private chats only. Draft instructions work everywhere.
 
-## Безопасность
+## Security
 
-- По умолчанию бот **только пишет черновики** и никогда не отправляет сообщения от имени пользователя. Авто-отправка возможна только при явном включении таймера автоответа в `/settings`.
-- **Сообщения не сохраняются.** Бот не хранит переписку — история запрашивается через Telegram API при каждом событии и нигде не сохраняется.
-- **Saved Messages** (чат с самим собой) и **Telegram service notifications** полностью игнорируются — бот не читает, не генерирует черновики и не обрабатывает сообщения в них. Дополнительные чаты можно исключить через `IGNORED_CHAT_IDS` в `config.py`.
-- Сессии Telegram шифруются `Fernet` (`SESSION_ENCRYPTION_KEY`) перед сохранением в базу данных.
+- By default, the bot **only writes drafts** and never sends messages on your behalf. Auto-sending is only possible when the auto-reply timer is explicitly enabled in `/settings`.
+- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted.
+- **Saved Messages** (self-chat) and **Telegram service notifications** are fully ignored — the bot doesn't read, draft, or process messages in them. Additional chats can be excluded via `IGNORED_CHAT_IDS` in `config.py`.
+- Telegram sessions are encrypted with `Fernet` (`SESSION_ENCRYPTION_KEY`) before being stored in the database.
 
-## Быстрый старт
+## Quick Start
 
-### 1. Клонировать и установить зависимости
+### 1. Clone and install dependencies
 
 ```bash
 git clone https://github.com/oponfil/draftguru.git
@@ -29,94 +29,83 @@ cd draftguru
 pip install -r requirements.txt
 ```
 
-### 2. Настроить переменные окружения
+### 2. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Заполните `.env`:
-- `BOT_TOKEN` — получите у [@BotFather](https://t.me/BotFather)
-- `PYROGRAM_API_ID` и `PYROGRAM_API_HASH` — из [my.telegram.org](https://my.telegram.org)
-- `SUPABASE_URL` и `SUPABASE_KEY` — из [Supabase Dashboard](https://supabase.com) (используйте **service_role** ключ)
-- `SESSION_ENCRYPTION_KEY` — ключ `Fernet` для шифрования `session_string` перед сохранением в БД
-- `EVM_PRIVATE_KEY` — приватный ключ кошелька Base с USDC для оплаты AI
+Fill in `.env`:
+- `BOT_TOKEN` — get from [@BotFather](https://t.me/BotFather)
+- `PYROGRAM_API_ID` and `PYROGRAM_API_HASH` — from [my.telegram.org](https://my.telegram.org)
+- `SUPABASE_URL` and `SUPABASE_KEY` — from [Supabase Dashboard](https://supabase.com) (use the **service_role** key)
+- `SESSION_ENCRYPTION_KEY` — `Fernet` key for encrypting `session_string` before storing in DB
+- `EVM_PRIVATE_KEY` — private key of a Base wallet with USDC for AI payments
 
-Сгенерировать `SESSION_ENCRYPTION_KEY` можно так:
+Generate `SESSION_ENCRYPTION_KEY`:
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Опционально для отладки:
-- `DEBUG_PRINT=true` — подробные логи в консоли (по умолчанию `false`)
-- `LOG_TO_FILE=true` — сохранять полные запросы/ответы AI в `logs/` для локальной отладки (по умолчанию `false`)
+Optional for debugging:
+- `DEBUG_PRINT=true` — verbose console logs (default `false`)
+- `LOG_TO_FILE=true` — save full AI requests/responses to `logs/` for local debugging (default `false`)
 
-Важно: на продакшене `LOG_TO_FILE` должен оставаться выключенным, потому что в лог будут записываться полные prompt'ы, история переписки и ответы модели.
+Important: keep `LOG_TO_FILE` disabled in production — it logs full prompts, chat history, and model responses.
 
-Для локализации системных сообщений:
-- `SYSTEM_MESSAGE_TRANSLATION_TIMEOUT` — таймаут запроса перевода (секунды, по умолчанию `60`)
-- `SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS` — TTL английского fallback-кэша при сбое перевода (секунды, по умолчанию `300`)
+### 3. Create the database table
 
-Для скачивания логов с Railway (см. раздел "Логи продакшена"):
-- `RAILWAY_TOKEN` — API Token (https://railway.app/account/tokens)
-- `RAILWAY_PROJECT_ID` — ID проекта (`railway list --json`)
-- `RAILWAY_SERVICE_NAME` — имя сервиса (например `bot`)
+Run `schema.sql` in the SQL Editor of your Supabase project.
 
-Примечание по логике перевода: сообщения кэшируются по языку. При временной ошибке перевода бот использует английский fallback и кэширует его на 5 минут, после чего автоматически пробует перевод снова.
-
-### 3. Создать таблицу в Supabase
-
-Выполните `schema.sql` в SQL Editor вашего Supabase проекта.
-
-### 4. Запустить
+### 4. Start the bot
 
 ```bash
 python bot.py
 ```
 
-## Команды бота
+## Bot Commands
 
-| Команда | Описание |
-|---------|----------|
-| `/start` | Приветствие и краткая инструкция по использованию бота |
-| `/settings` | Настройки: драфты, модель (FREE/PRO), промпт, стиль общения, таймер автоответа, часовой пояс |
-| `/chats` | Per-chat настройки: индивидуальный стиль и таймер автоответа для каждого чата (только для подключённых) |
-| `/status` | Статус подключения |
-| `/connect` | Подключить Telegram-аккаунт через телефон или QR-код (поддерживает 2FA) |
-| `/disconnect` | Отключить аккаунт (идемпотентно: останавливает listener и очищает сессию в БД) |
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and quick usage guide |
+| `/settings` | Settings: drafts, model (FREE/PRO), prompt, communication style, auto-reply timer, timezone |
+| `/chats` | Per-chat settings: individual style and auto-reply timer for each chat (connected users only) |
+| `/status` | Connection status |
+| `/connect` | Connect Telegram account via phone or QR code (supports 2FA) |
+| `/disconnect` | Disconnect account (idempotent: stops listener and clears session in DB) |
 
-Меню команд динамическое: `/connect` и `/disconnect` показываются в зависимости от статуса подключения. `/chats` видна только подключённым. `/start` не отображается в меню.
+The command menu is dynamic: `/connect` and `/disconnect` are shown based on connection status. `/chats` is only visible to connected users. `/start` is not shown in the menu.
 
-По умолчанию `/connect` предлагает ввести номер телефона. Кнопка под сообщением позволяет переключиться на QR-код. При `2FA` бот попросит cloud password отдельным сообщением и сразу удалит его. Номер телефона, код подтверждения и пароль автоматически удаляются из чата.
+By default, `/connect` prompts for a phone number. A button below the message lets you switch to QR code. For `2FA`, the bot asks for the cloud password in a separate message and immediately deletes it. Phone number, confirmation code, and password are automatically deleted from chat.
 
-**Маскировка кода:** При вводе кода подтверждения бот просит добавить любую букву или пробел в код (например `12x345`). Это не даёт Telegram распознать код в сообщении и заблокировать вход. Бот автоматически извлекает цифры перед отправкой.
+**Code masking:** During authorization, the bot will ask you to enter the confirmation code with letters or spaces (e.g. `12x345`) to prevent Telegram from blocking your login attempt.
 
-### Настройки (`/settings`)
+### Settings (`/settings`)
 
-| Настройка | Описание | По умолчанию |
-|-----------|----------|:------------:|
-| **Drafts** (✏️) | Включение/выключение обработки черновиков-инструкций. Когда выключено, бот не редактирует черновики по инструкциям, но продолжает создавать авто-ответы на входящие сообщения. Работает в личных чатах, группах и супергруппах. | ✅ ON |
-| **Model** (🤖) | Выбор режима ИИ: FREE (Gemini 3.1 Flash Lite) или PRO. В режиме PRO модель выбирается по стилю общения: для большинства стилей используется GPT-5.4, для seducer — Gemini 3.1 Pro Preview. Уровень reasoning настраивается per-model через `MODEL_REASONING_EFFORT` в `config.py` (по умолчанию `medium`). Применяется ко всем генерациям — автоответы, черновики и общение в чате с ботом. | PRO |
-| **Prompt** (📝) | Пользовательский промпт: описание вашей личности (persona) и дополнительные инструкции (макс. 600 символов). ИИ формирует из этого блок *USER PROFILE & CUSTOM INSTRUCTIONS*. **Рекомендуем добавить описание себя** — пол, возраст, род деятельности и привычки в переписке — чтобы ИИ не ошибался в окончаниях глаголов и точнее копировал ваш стиль. Пример: «Я парень, 28 лет, работаю дизайнером. Пишу коротко, 1–2 предложения, никогда не ставлю точки в конце. Часто использую мат и стикеры». Применяется к черновикам и автоответам. | ❌ OFF |
-| **Style** (🦉/🍻/💕/💼/💰/🕵️/😈) | Стиль общения: Userlike, Friend, Romance, Business, Sales, Paranoid, Seducer. Определяет тон и манеру ответов (в том числе при общении напрямую с ботом). | 🦉 Userlike |
-| **Auto-reply** (⏰) | Таймер автоответа. Если пользователь не отправил черновик за указанное время, бот отправляет сообщение сам. Варианты: OFF, 1 мин, 5 мин, 15 мин, 1 час, 16 часов. Реальная задержка: от base до 2×base (например, 16 ч → 16–32 ч, среднее 24 ч). | OFF |
-| **Timezone** (🕐) | Часовой пояс пользователя. Кнопка показывает текущее время — при нажатии переключается на следующий из 30 популярных UTC-смещений (включая +3:30, +4:30, +5:30, +9:30). Влияет на отображение времени сообщений в контексте для ИИ. | UTC0 |
+| Setting | Description | Default |
+|---------|-------------|:-------:|
+| **Drafts** (✏️) | Enable/disable draft instruction processing. When disabled, the bot won't edit drafts based on instructions but will continue creating auto-replies to incoming messages. | ✅ ON |
+| **Model** (🤖) | AI mode: FREE (Gemini 3.1 Flash Lite) or PRO. In PRO mode, the model is selected by communication style: GPT-5.4 for most styles, Gemini 3.1 Pro Preview for seducer. | PRO |
+| **Prompt** (📝) | Custom prompt: describe your persona and add instructions (max 600 chars). The AI uses this to build a *USER PROFILE & CUSTOM INSTRUCTIONS* block. **We recommend adding a self-description** — gender, age, occupation, and texting habits — so the AI mimics your style more accurately. Example: "I'm a 28 y/o guy, designer. I text short, 1–2 sentences, never use periods at the end. I swear a lot and use stickers." Applied to drafts and auto-replies. | ❌ OFF |
+| **Style** (🦉/🍻/💕/💼/💰/🕵️/😈) | Communication style: Userlike, Friend, Romance, Business, Sales, Paranoid, Seducer. Sets the tone and manner of replies (including direct bot chat). | 🦉 Userlike |
+| **Auto-reply** (⏰) | Auto-reply timer. If the user doesn't send the draft within the specified time, the bot sends the message itself. Options: OFF, 1 min, 5 min, 15 min, 1 hour, 16 hours. Actual delay: from base to 2×base (e.g. 16 h → 16–32 h, avg 24 h). | OFF |
+| **Timezone** (🕐) | User timezone. The button shows the current time — tap to cycle through 30 popular UTC offsets (including +3:30, +4:30, +5:30, +9:30). Affects message timestamps in AI context. | UTC0 |
 
-### Per-chat настройки (`/chats`)
+### Per-chat Settings (`/chats`)
 
-Команда `/chats` показывает только чаты, в которых бот реально ставил черновик или отвечал, а также чаты с кастомными настройками. Для каждого чата отображаются две кнопки:
+The `/chats` command shows only chats where the bot has actually set a draft or replied, as well as chats with custom settings. Each chat has two buttons:
 
-- **Стиль** (`🦉 Имя`) — нажатие циклически переключает стиль
-- **Автоответ** (`⏰`) — нажатие циклически переключает таймер автоответа для этого чата
+- **Style** (`🦉 Name`) — tap to cycle through styles
+- **Auto-reply** (`⏰`) — tap to cycle through auto-reply timers for this chat
 
-Per-chat настройки переопределяют глобальные из `/settings`. Если per-chat значение совпадает с глобальным, override автоматически сбрасывается. Доступна только подключённым пользователям.
+Per-chat settings override the global ones from `/settings`. If a per-chat value matches the global one, the override is automatically cleared. Available only to connected users.
 
-**Индикатор набора текста:** Пока бот генерирует ответ, он показывает статус в чате с эмодзи активного стиля (например: `💕 is typing...` для Romance или `😈 is typing...` для Seducer).
+**Typing indicator:** While generating a reply, the bot shows a status in the chat with the active style emoji (e.g. `💕 is typing...` for Romance or `😈 is typing...` for Seducer).
 
-**Emoji-шорткат в черновике:** поставьте emoji стиля в черновик чата — бот сменит стиль и сгенерирует ответ. Если выбранный эмодзи совпадает с вашим **глобальным стилем** (установленным в `/settings`), индивидуальная настройка для чата будет сброшена.
+**Emoji shortcut in draft:** put a style emoji in the chat draft — the bot will switch the style and generate a reply. If the chosen emoji matches your **global style** (set in `/settings`), the per-chat override will be cleared.
 
-| Emoji | Стиль |
+| Emoji | Style |
 |-------|-------|
 | 🦉 | Userlike |
 | 🍻 | Friend |
@@ -126,78 +115,62 @@ Per-chat настройки переопределяют глобальные и
 | 🕵️ | Paranoid |
 | 😈 | Seducer |
 
-Можно комбинировать: `😈 напиши ей что скучаю` — сменит стиль на Seducer и выполнит инструкцию.
+You can combine: `😈 tell her I miss her` — switches the style to Seducer and executes the instruction.
 
-### Голосовые и стикеры
+### Voice Messages and Stickers
 
-При получении голосового сообщения бот автоматически расшифровывает его через Telegram Premium `TranscribeAudio` и генерирует черновик ответа на основе текста. Требуется Telegram Premium на подключённом аккаунте (или пробные попытки для бесплатных пользователей).
+When a voice message is received, the bot automatically transcribes it via Telegram Premium `TranscribeAudio` and generates a draft reply based on the text. Requires Telegram Premium on the connected account (or trial attempts for free users).
 
-Стикеры обрабатываются по эмодзи — бот видит эмодзи стикера в контексте переписки и генерирует уместный ответ.
+Stickers are processed by emoji — the bot sees the sticker's emoji in the conversation context and generates an appropriate reply.
 
-### Polling пропущенных сообщений
+## Deploy on Railway
 
-Telegram MTProto может не доставить update Pyrogram-сессии (конкуренция с клиентом на телефоне, reconnect). Бот раз в `POLL_MISSED_INTERVAL` секунд проверяет последние приватные чаты через `getDialogs` + `getHistory` и автоматически генерирует черновик, если входящее сообщение было пропущено.
+1. Create a project on [Railway](https://railway.app)
+2. Connect your GitHub repository
+3. Add environment variables (from `.env.example`)
+4. Railway will automatically detect the `Procfile` and start the bot
 
-## Деплой на Railway
-
-1. Создайте проект на [Railway](https://railway.app)
-2. Подключите GitHub-репозиторий
-3. Добавьте переменные окружения (из `.env.example`)
-4. Railway автоматически обнаружит `Procfile` и запустит бота
-
-### Логи продакшена
-
-```bash
-python scripts/fetch_logs.py                  # последние 500 строк
-python scripts/fetch_logs.py --all             # все доступные (до 5000)
-python scripts/fetch_logs.py --filter ERROR    # только ошибки
-python scripts/fetch_logs.py --since 1h        # за последний час
-```
-
-Логи сохраняются в `logs/production_*.log` со статистикой по компонентам.
-
-## Тесты
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-Все внешние зависимости замоканы — тесты полностью офлайновые и не требуют `.env`.
+All external dependencies are mocked — tests are fully offline and don't require `.env`.
 
-Тесты автоматически запускаются на GitHub при push в `main`/`dev` и при PR (GitHub Actions).
+Tests run automatically on GitHub on push to `main`/`dev` and on PRs (GitHub Actions).
 
-## Хранение секретов
+## Secret Storage
 
-- `SESSION_STRING` — bearer credential. Скрипты `scripts/generate_session.py` и `scripts/generate_session_qr.py` не показывают его в терминале, пока пользователь явно не введет `YES`.
-- Не храните `SESSION_STRING` в shell history, логах и чатах.
+- `SESSION_STRING` — a secret key for your account. Generation scripts don't display it in the terminal without explicit confirmation. Never share it with third parties.
 
-## Архитектура
+## Architecture
 
-- **bot.py** — Точка входа: регистрация обработчиков и запуск бота
-- **handlers/** — Команды бота и события Pyrogram
-- **config.py** — Константы и переменные окружения
-- **prompts.py** — Промпты для ИИ
-- **system_messages.py** — Системные сообщения с автопереводом
-- **clients/** — API-клиенты (x402gate, Pyrogram)
-- **logic/** — Бизнес-логика генерации ответов
-- **database/** — Запросы к Supabase
-- **utils/** — Утилиты
-- **scripts/** — CLI-скрипты (логи Railway, генерация сессий)
-- **tests/** — Unit-тесты (pytest)
+- **bot.py** — Entry point: handler registration and bot startup
+- **handlers/** — Bot commands and Pyrogram events
+- **config.py** — Constants and environment variables
+- **prompts.py** — AI prompts
+- **system_messages.py** — System messages with auto-translation
+- **clients/** — API clients (x402gate, Pyrogram)
+- **logic/** — Reply generation business logic
+- **database/** — Supabase queries
+- **utils/** — Utilities
+- **scripts/** — CLI scripts (Railway logs, session generation)
+- **tests/** — Unit tests (pytest)
 
-## Стек
+## Tech Stack
 
 - **Python 3.13**
 - **python-telegram-bot** — Telegram Bot API
-- **Pyrogram** — Telegram Client API (чтение сообщений, черновики)
-- **x402gate.io** → OpenRouter → любая модель (задаётся в `config.py`, оплата USDC на Base)
-- **Supabase** — PostgreSQL (БД)
-- **Railway** — хостинг
+- **Pyrogram** — Telegram Client API (reading messages, drafts)
+- **x402gate.io** → OpenRouter → any model (configured in `config.py`, paid with USDC on Base)
+- **Supabase** — PostgreSQL (DB)
+- **Railway** — hosting
 
-## Стайлгайд
+## Style Guide
 
-См. [CONTRIBUTING.md](CONTRIBUTING.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## Лицензия
+## License
 
 [MIT License](LICENSE)

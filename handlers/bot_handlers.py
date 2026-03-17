@@ -3,11 +3,11 @@
 import asyncio
 import traceback
 
-from telegram import Update
+from telegram import Message, Update, User
 from telegram.ext import ContextTypes
 
 from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES
-from utils.utils import get_effective_model, get_timestamp, typing_action
+from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
@@ -18,6 +18,7 @@ from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
 
 
+@serialize_user_updates
 @typing_action
 async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /start."""
@@ -51,6 +52,7 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update_user_menu(context.bot, u.id, u.language_code, is_connected)
 
 
+@serialize_user_updates
 @typing_action
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик текстовых сообщений — генерирует ответ через ИИ."""
@@ -61,6 +63,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not message_text.strip():
         return
 
+    await _process_text(update, context, u, m, message_text)
+
+
+async def _process_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE,
+    u: User, m: Message, message_text: str,
+) -> None:
+    """Внутренняя логика on_text, выполняется под per-user lock."""
     # Проверяем: пользователь вводит кастомный промпт?
     if context.user_data.get("awaiting_prompt"):
         prompt_text = message_text.strip()

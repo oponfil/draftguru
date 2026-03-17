@@ -27,7 +27,17 @@ from config import (
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
     EMOJI_TO_STYLE, IGNORED_CHAT_IDS,
 )
-from utils.utils import format_chat_history, get_effective_auto_reply, get_effective_drafts, get_effective_model, get_effective_style, get_timestamp, keep_typing, typing_action
+from utils.utils import (
+    format_chat_history,
+    get_effective_auto_reply,
+    get_effective_drafts,
+    get_effective_model,
+    get_effective_style,
+    get_timestamp,
+    keep_typing,
+    serialize_user_updates,
+    typing_action,
+)
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
 from logic.reply import generate_reply
@@ -40,6 +50,7 @@ from utils.telegram_user import ensure_effective_user, upsert_effective_user
 
 # ====== /disconnect ======
 
+@serialize_user_updates
 @typing_action
 async def on_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /disconnect — отключает аккаунт."""
@@ -89,6 +100,7 @@ async def on_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # ====== /status ======
 
+@serialize_user_updates
 @typing_action
 async def on_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /status — показывает статус подключения."""
@@ -226,6 +238,7 @@ async def _safe_disconnect_temp_client(client: Client, user_id: int) -> None:
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [CONNECT_QR] Cleanup disconnect failed for user {user_id}: {e}")
 
+@serialize_user_updates
 @typing_action
 async def on_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /connect — подключение аккаунта (сначала телефон, кнопка QR)."""
@@ -347,6 +360,7 @@ async def _start_qr_flow(
             await _safe_disconnect_temp_client(client, user_id)
 
 
+@serialize_user_updates
 async def on_connect_qr_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback кнопки 'QR-код' — переключает на QR-flow."""
     query = update.callback_query
@@ -381,6 +395,7 @@ async def on_connect_qr_callback(update: Update, context: ContextTypes.DEFAULT_T
 # ====== Phone flow text handlers ======
 
 
+@serialize_user_updates
 async def handle_connect_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Диспетчер текстовых сообщений для phone-flow и QR 2FA."""
     u = update.effective_user
