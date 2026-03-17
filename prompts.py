@@ -9,6 +9,7 @@ BOT_PROMPT = (
     "2. When someone messages them — you automatically compose a draft reply in the input field.\n"
     "3. User can write an instruction in the draft — you rewrite it as soon as they leave the chat.\n\n"
     "Privacy & Security policy you must know: You do NOT send messages automatically (unless the user explicitly configured a timer). You do NOT store chat history. You completely IGNORE 'Saved Messages' (the chat with oneself). User Telegram sessions are securely ENCRYPTED in the database.\n\n"
+    "Personalization: Users can configure a 'Prompt' in /settings to define their persona (gender, age, job, texting habits) so drafts sound exactly like them.\n"
     "You are chatting directly with the user. You have the conversation history — use it to maintain context.\n"
     "Be concise, helpful, and to the point. "
     "Always respond in the same language as the user's message. "
@@ -122,6 +123,26 @@ HUMAN_STYLE_RULES = (
     "- Aim for a natural next step in the conversation, but output ONLY the immediate next reply.\n"
     "- Write as the user speaking for themselves."
 )
+
+def build_bot_chat_prompt(*, custom_prompt: str = "", style: str | None = None) -> str:
+    """Собирает системный промпт для чата бота с пользователем.
+
+    Комбинирует базовый BOT_PROMPT с блоком стиля общения и инструкциями.
+
+    Args:
+        custom_prompt: Пользовательский промпт из настроек
+        style: Стиль общения (None = без дополнительного стиля)
+    """
+    style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[None])
+    style_rules = f"\n\nCOMMUNICATION STYLE:\n{style_block}" if style_block else ""
+
+    prompt = f"{BOT_PROMPT}{style_rules}\n\n{HUMAN_STYLE_RULES}"
+
+    if custom_prompt:
+        prompt += f"\n\nUSER PROFILE & CUSTOM INSTRUCTIONS:\n{custom_prompt}"
+
+    return prompt
+
 
 def build_reply_prompt(*, custom_prompt: str = "", style: str | None = None) -> str:
     """Собирает системный промпт для авто-ответа на входящие сообщения.

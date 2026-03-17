@@ -84,19 +84,19 @@ SYSTEM_MESSAGES = {
     "settings_prompt_enter": f"📝 Send your custom prompt as a message. It will be added to the AI system prompt for all chats.\n\n⚠️ Max length: {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_truncated": f"⚠️ Prompt was too long, so I saved only the first {CUSTOM_PROMPT_MAX_LENGTH} characters.",
     "settings_prompt_saved": "✅ Custom prompt saved!",
-    "settings_auto_reply_off": "⏰ Auto-reply: OFF",
-    "settings_auto_reply_1m": "⏰ Auto-reply: 1 min",
-    "settings_auto_reply_5m": "⏰ Auto-reply: 5 min",
-    "settings_auto_reply_15m": "⏰ Auto-reply: 15 min",
-    "settings_auto_reply_1h": "⏰ Auto-reply: 1 hour",
-    "settings_auto_reply_16h": "⏰ Auto-reply: 16 hours",
+    "settings_auto_reply_off": "⏰ Auto-reply: ✅ OFF",
+    "settings_auto_reply_1m": "⏰ Auto-reply: ⚠️ 1 min",
+    "settings_auto_reply_5m": "⏰ Auto-reply: ⚠️ 5 min",
+    "settings_auto_reply_15m": "⏰ Auto-reply: ⚠️ 15 min",
+    "settings_auto_reply_1h": "⏰ Auto-reply: ⚠️ 1 hour",
+    "settings_auto_reply_16h": "⏰ Auto-reply: ⚠️ 16 hours",
 
     # — Settings: Style —
     "settings_style_userlike": "👤 Style: Userlike",
     "settings_style_romance": "💕 Style: Romance Guru",
     "settings_style_business": "💼 Style: Business Guru",
     "settings_style_sales": "💰 Style: Sales Guru",
-    "settings_style_friend": "🍻 Style: Friend Guru",
+    "settings_style_friend": "🦉 Style: Friend Guru",       # 🍻
     "settings_style_seducer": "😈 Style: Seducer Guru",
     "settings_style_paranoid": "🕵️ Style: Paranoid Guru",
 }

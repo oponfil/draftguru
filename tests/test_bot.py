@@ -1,6 +1,6 @@
 # tests/test_bot.py — Тесты для bot.py и handlers/bot_handlers.py
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, ANY
 
 import pytest
 
@@ -118,11 +118,55 @@ class TestOnText:
                 {"role": "assistant", "content": "a1"},
                 {"role": "user", "content": "u2"},
             ],
+            system_prompt=ANY,
+            reasoning_effort=ANY,
         )
         assert mock_context.chat_data["history"] == [
             {"role": "user", "content": "Новый вопрос"},
             {"role": "assistant", "content": "Ответ"},
         ]
+
+    @pytest.mark.asyncio
+    async def test_uses_style_pro_model(self, mock_update, mock_context):
+        """pro_model + style='seducer' → модель из STYLE_PRO_MODELS['seducer']."""
+        mock_update.message.text = "Hello"
+
+        with patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {"pro_model": True, "style": "seducer"}}), \
+             patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Reply") as mock_generate:
+            await on_text(mock_update, mock_context)
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert call_kwargs["model"] == "google/gemini-3.1-pro-preview"
+        assert call_kwargs["reasoning_effort"] == "low"
+
+    @pytest.mark.asyncio
+    async def test_style_included_in_system_prompt(self, mock_update, mock_context):
+        """Стиль общения включается в system_prompt."""
+        mock_update.message.text = "Hello"
+
+        with patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {"style": "paranoid"}}), \
+             patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Reply") as mock_generate:
+            await on_text(mock_update, mock_context)
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert "Paranoid Guru" in call_kwargs["system_prompt"]
+        assert "DraftGuru" in call_kwargs["system_prompt"]
+
+    @pytest.mark.asyncio
+    async def test_no_style_uses_base_prompt(self, mock_update, mock_context):
+        """Без стиля — базовый BOT_PROMPT без дополнений."""
+        mock_update.message.text = "Hello"
+
+        with patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.generate_response", new_callable=AsyncMock, return_value="Reply") as mock_generate:
+            await on_text(mock_update, mock_context)
+
+        call_kwargs = mock_generate.call_args.kwargs
+        assert "DraftGuru" in call_kwargs["system_prompt"]
+        assert "COMMUNICATION STYLE" not in call_kwargs["system_prompt"]
 
     @pytest.mark.asyncio
     async def test_error_sends_error_message(self, mock_update, mock_context):
@@ -167,16 +211,17 @@ class TestOnText:
     @pytest.mark.asyncio
     async def test_prompt_too_long_is_truncated_saved_and_reported(self, mock_update, mock_context):
         """Слишком длинный промпт обрезается, сохраняется и сообщает об этом."""
-        mock_update.message.text = "A" * 501
+        mock_update.message.text = "A" * 601
         mock_context.user_data["awaiting_prompt"] = True
 
-        with patch("handlers.bot_handlers.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update_settings, \
+        with patch("handlers.bot_handlers.CUSTOM_PROMPT_MAX_LENGTH", 600), \
+             patch("handlers.bot_handlers.update_user_settings", new_callable=AsyncMock, return_value=True) as mock_update_settings, \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Промпт обрезан и сохранён"):
             await on_text(mock_update, mock_context)
 
         mock_update_settings.assert_called_once_with(
             mock_update.effective_user.id,
-            {"custom_prompt": "A" * 500},
+            {"custom_prompt": "A" * 600},
         )
         mock_update.message.reply_text.assert_called_once_with("Промпт обрезан и сохранён")
         assert "awaiting_prompt" not in mock_context.user_data

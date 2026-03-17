@@ -1,4 +1,29 @@
-from prompts import build_draft_prompt, build_reply_prompt
+from prompts import build_bot_chat_prompt, build_draft_prompt, build_reply_prompt, BOT_PROMPT, HUMAN_STYLE_RULES
+
+
+class TestBuildBotChatPrompt:
+    def test_no_style_returns_base_prompt_with_human_rules(self):
+        """Без стиля — возвращает базовый BOT_PROMPT и HUMAN_STYLE_RULES."""
+        prompt = build_bot_chat_prompt()
+        assert prompt.startswith(BOT_PROMPT)
+        assert HUMAN_STYLE_RULES in prompt
+        assert "COMMUNICATION STYLE:" not in prompt
+
+    def test_style_appends_communication_style_and_human_rules(self):
+        """Стиль paranoid добавляет блок COMMUNICATION STYLE и HUMAN_STYLE_RULES."""
+        prompt = build_bot_chat_prompt(style="paranoid")
+        assert "COMMUNICATION STYLE:" in prompt
+        assert "Paranoid Guru" in prompt
+        assert HUMAN_STYLE_RULES in prompt
+        assert prompt.startswith(BOT_PROMPT)
+
+    def test_custom_prompt_is_appended(self):
+        """Инструкции пользователя добавляются в конец."""
+        prompt = build_bot_chat_prompt(custom_prompt="Be a pirate")
+        assert "USER PROFILE & CUSTOM INSTRUCTIONS:" in prompt
+        assert "Be a pirate" in prompt
+        assert prompt.startswith(BOT_PROMPT)
+        assert HUMAN_STYLE_RULES in prompt
 
 
 class TestBuildDraftPrompt:

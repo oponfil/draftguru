@@ -5,11 +5,12 @@ import traceback
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, STYLE_PRO_MODELS, MAX_CONTEXT_MESSAGES
+from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, LLM_MODEL, MODEL_REASONING_EFFORT, STYLE_PRO_MODELS, MAX_CONTEXT_MESSAGES
 from utils.utils import get_timestamp, typing_action
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
+from prompts import build_bot_chat_prompt
 from database.users import update_last_msg_at, update_tg_rating, update_user_settings
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
@@ -95,12 +96,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"{len(message_text)} chars, history: {len(history)} messages"
             )
 
-        # Читаем настройки пользователя для выбора модели
+        # Читаем настройки пользователя для выбора модели и стиля
         user_settings = (user or {}).get("settings") or {}
-        model = STYLE_PRO_MODELS[None] if user_settings.get("pro_model") else None
+        style = user_settings.get("style")
+        custom_prompt = user_settings.get("custom_prompt", "")
+        model = STYLE_PRO_MODELS.get(style, STYLE_PRO_MODELS[None]) if user_settings.get("pro_model") else None
+        effective_model = model or LLM_MODEL
 
-        # Генерируем ответ через OpenRouter с историей
+        # Генерируем ответ через OpenRouter с историей и стилем
         kwargs: dict = {"chat_history": history[-MAX_CONTEXT_MESSAGES:]}
+        kwargs["system_prompt"] = build_bot_chat_prompt(custom_prompt=custom_prompt, style=style)
+        kwargs["reasoning_effort"] = MODEL_REASONING_EFFORT.get(effective_model, "medium")
         if model:
             kwargs["model"] = model
         response_text = await generate_response(message_text, **kwargs)
