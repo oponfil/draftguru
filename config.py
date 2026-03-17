@@ -141,8 +141,8 @@ STYLE_OPTIONS: dict[str, str] = {
     style: _style_msg_key(style) for style in EMOJI_TO_STYLE.values()
 }
 
-# Количество чатов в /styles
-CHAT_STYLES_DIALOGS_LIMIT = 10
+# Количество чатов в /styles для отображения
+CHAT_STYLES_DIALOGS_LIMIT = 15
 
 # ====== ЧАСОВОЙ ПОЯС ======
 # 30 популярных UTC-смещений (часы); дробные: +3.5 Иран, +4.5 Афганистан,

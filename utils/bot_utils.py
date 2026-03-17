@@ -22,7 +22,7 @@ async def update_user_menu(bot, user_id: int, language_code: str | None, is_conn
         ]
 
         if is_connected:
-            commands.append(BotCommand("styles", messages.get("menu_styles", "Chat styles")))
+            commands.append(BotCommand("chats", messages.get("menu_chats", "Chat settings")))
 
         commands.append(BotCommand("status", messages.get("menu_status", "Connection status")))
 

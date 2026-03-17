@@ -6,6 +6,7 @@ import io
 import random
 import time
 import traceback
+from collections import defaultdict
 from datetime import datetime, timezone
 
 import qrcode
@@ -25,7 +26,7 @@ from config import (
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_PRO_MODELS, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
     EMOJI_TO_STYLE,
 )
-from utils.utils import format_chat_history, get_effective_style, get_timestamp, normalize_auto_reply, typing_action
+from utils.utils import format_chat_history, get_effective_auto_reply, get_effective_style, get_timestamp, typing_action
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
 from logic.reply import generate_reply
@@ -1047,14 +1048,13 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
+        _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply set as draft for user {user_id} in chat {chat_id}")
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
-        auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
-        if auto_reply:
-            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
+        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
 
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR processing message for user {user_id}: {e}")
@@ -1126,14 +1126,13 @@ async def _generate_reply_for_chat(
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
+        _track_replied_chat(user_id, chat_id)
         draft_replaced = True
 
         print(f"{get_timestamp()} [DRAFT] Emoji reply set as draft for user {user_id} in chat {chat_id}")
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
-        auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
-        if auto_reply:
-            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
+        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
 
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR _generate_reply_for_chat for user {user_id}: {e}")
@@ -1214,13 +1213,12 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
+        _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply re-generated for user {user_id} in chat {chat_id}")
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
-        auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
-        if auto_reply:
-            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
+        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
 
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR re-generating reply for user {user_id}: {e}")
@@ -1251,6 +1249,28 @@ _reply_pending: dict[tuple[int, int], bool] = {}
 # ID последнего обработанного входящего сообщения: {(user_id, chat_id): message_id}
 _last_seen_msg_id: dict[tuple[int, int], int] = {}
 
+# Чаты, в которых бот реально ответил (set_draft / send_message): {user_id: {chat_id, ...}}
+_replied_chats: dict[int, set[int]] = defaultdict(set)
+
+
+def _track_replied_chat(user_id: int, chat_id: int) -> None:
+    """Запоминает чат, в котором бот поставил черновик или отправил сообщение."""
+    _replied_chats[user_id].add(chat_id)
+
+
+def get_replied_chats(user_id: int) -> set[int]:
+    """Возвращает set chat_id, в которых бот реально ответил (in-memory)."""
+    return set(_replied_chats.get(user_id, set()))
+
+
+def _maybe_schedule_auto_reply(
+    user_settings: dict, user_id: int, chat_id: int, text: str,
+) -> None:
+    """Запускает таймер автоответа, если per-chat или глобальный auto_reply включён."""
+    auto_reply = get_effective_auto_reply(user_settings, chat_id)
+    if auto_reply:
+        _schedule_auto_reply(user_id, chat_id, text, auto_reply)
+
 
 def _cancel_auto_reply(key: tuple[int, int]) -> None:
     """Отменяет активный таймер автоответа для чата."""
@@ -1280,6 +1300,7 @@ async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds
 
         sent = await pyrogram_client.send_message(user_id, chat_id, text)
         if sent:
+            _track_replied_chat(user_id, chat_id)
             _bot_drafts.pop(key, None)
             _bot_draft_echoes.pop(key, None)
             print(f"{get_timestamp()} [AUTO-REPLY] Sent for user {user_id} in chat {chat_id} after {delay:.0f}s")
@@ -1447,14 +1468,13 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
+        _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [DRAFT] Response set as draft for user {user_id} in chat {chat_id}")
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
-        auto_reply = normalize_auto_reply(user_settings.get("auto_reply"))
-        if auto_reply:
-            _schedule_auto_reply(user_id, chat_id, ai_text, auto_reply)
+        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
 
     except Exception as e:
         print(f"{get_timestamp()} [DRAFT] ERROR processing draft for user {user_id}: {e}")

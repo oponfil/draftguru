@@ -164,3 +164,19 @@ def get_effective_style(settings: dict, chat_id: int | None = None) -> str:
     return settings.get("style") or DEFAULT_STYLE
 
 
+def get_effective_auto_reply(settings: dict, chat_id: int | None = None) -> int | None:
+    """Возвращает auto_reply для конкретного чата (per-chat override → глобальный дефолт).
+
+    Args:
+        settings: Настройки пользователя
+        chat_id: ID чата (None → глобальный auto_reply)
+
+    Returns:
+        Секунды автоответа или None (OFF)
+    """
+    if chat_id is not None:
+        chat_auto_replies = settings.get("chat_auto_replies") or {}
+        per_chat = chat_auto_replies.get(str(chat_id))
+        if per_chat is not None:
+            return normalize_auto_reply(per_chat)
+    return normalize_auto_reply(settings.get("auto_reply"))

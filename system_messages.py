@@ -100,11 +100,11 @@ SYSTEM_MESSAGES = {
         for emoji, style in EMOJI_TO_STYLE.items()
     },
 
-    # — Styles (per-chat) —
-    "menu_styles": "Chat styles",
-    "styles_title": "🎭 Chat Styles\nTap a chat to change its style.",
-    "styles_not_connected": "🔌 Connect your account first with /connect.",
-    "styles_no_chats": "No active chats found. Start a conversation first.",
+    # — Chats (per-chat settings) —
+    "menu_chats": "Chat settings",
+    "chats_title": "🎭 Chats\nTap to change style or auto-reply timer.",
+    "chats_not_connected": "🔌 Connect your account first with /connect.",
+    "chats_no_chats": "No active chats found. Start a conversation first.",
 }
 
 

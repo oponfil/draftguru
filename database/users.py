@@ -306,3 +306,26 @@ async def update_chat_style(user_id: int, chat_id: int, style: str | None) -> di
     )
 
 
+async def update_chat_auto_reply(user_id: int, chat_id: int, value: int | None) -> dict | None:
+    """Устанавливает auto_reply для конкретного чата (None = сброс на глобальный).
+
+    Args:
+        user_id: ID пользователя
+        chat_id: ID чата
+        value: Секунды автоответа или None для сброса
+
+    Returns:
+        Merged-настройки при успехе, None при ошибке.
+    """
+    user = await get_user(user_id)
+    settings = (user or {}).get("settings") or {}
+    chat_auto_replies = dict(settings.get("chat_auto_replies") or {})
+
+    if value is None:
+        chat_auto_replies.pop(str(chat_id), None)
+    else:
+        chat_auto_replies[str(chat_id)] = value
+
+    return await update_user_settings(
+        user_id, {"chat_auto_replies": chat_auto_replies}, current_settings=settings,
+    )

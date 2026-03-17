@@ -125,6 +125,7 @@ HUMAN_STYLE_RULES = (
     "- NEVER write long, beautiful, or overly polite AI-style paragraphs. You are a real person texting on the go.\n"
     "- Vary your replies naturally — some short, some lazy, just like a human. Do NOT sound like an assistant.\n"
     "- Aim for a natural next step in the conversation, but output ONLY the immediate next reply.\n"
+    "- Infer your gender and the other person's gender from your names in the PARTICIPANTS block. Match your grammatical verbs and adjectives to your gender (especially crucial in Russian).\n"
     "- Write as the user speaking for themselves."
 )
 
