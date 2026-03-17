@@ -52,7 +52,6 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update_user_menu(context.bot, u.id, u.language_code, is_connected)
 
 
-@serialize_user_updates
 @typing_action
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик текстовых сообщений — генерирует ответ через ИИ."""
