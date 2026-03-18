@@ -3,7 +3,7 @@
 import asyncio
 import traceback
 
-from telegram import Message, Update, User
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
 from telegram.ext import ContextTypes
 
 from config import CUSTOM_PROMPT_MAX_LENGTH, DEBUG_PRINT, LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES
@@ -16,6 +16,7 @@ from database.users import update_last_msg_at, update_tg_rating, update_user_set
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
+from handlers.pyrogram_handlers import on_connect
 
 
 @serialize_user_updates
@@ -45,11 +46,36 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Приветствие на языке пользователя
     greeting = await get_system_message(u.language_code, "greeting")
-    await update.message.reply_text(greeting)
 
     # Устанавливаем меню команд с учётом статуса подключения
     is_connected = pyrogram_client.is_active(u.id)
+
+    if is_connected:
+        await update.message.reply_text(greeting)
+    else:
+        connect_label = await get_system_message(u.language_code, "greeting_btn_connect")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(connect_label, callback_data="start:connect")]
+        ])
+        await update.message.reply_text(greeting, reply_markup=keyboard)
+
     await update_user_menu(context.bot, u.id, u.language_code, is_connected)
+
+
+async def on_start_connect_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback кнопки 'Connect' из приветственного сообщения."""
+    query = update.callback_query
+    await query.answer()
+
+    # Убираем кнопку
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception as e:
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [BOT] Failed to remove reply markup: {e}")
+
+    # Делегируем в on_connect
+    await on_connect(update, context)
 
 
 @typing_action

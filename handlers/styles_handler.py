@@ -100,6 +100,8 @@ def _get_relevant_dialogs(
     ar_ids = set(int(k) for k in (user_settings.get("chat_auto_replies") or {}))
     relevant_ids = replied | styled_ids | ar_ids
     dialogs = [d for d in all_dialogs if d["chat_id"] in relevant_ids]
+    # Чаты с per-chat auto-reply/ignore — сверху
+    dialogs.sort(key=lambda d: d["chat_id"] not in ar_ids)
     return dialogs[:CHAT_STYLES_DIALOGS_LIMIT]
 
 

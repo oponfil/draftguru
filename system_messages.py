@@ -37,6 +37,7 @@ SYSTEM_MESSAGES = {
         "🔞 For users 18+ only."
     ),
     "error": "⚠️ An error occurred. Please try again later.",
+    "greeting_btn_connect": "🔌 Connect Account",
 
     # — Connect / Disconnect —
     "connect_success": "✅ Account connected! I'll now suggest replies to your incoming messages as drafts.",
@@ -59,6 +60,10 @@ SYSTEM_MESSAGES = {
     "connect_code_no_separator": "⚠️ It looks like you entered the code without separators. Telegram has blocked this code.\nNext time add any character or space in the code (e.g. 12-345).",
     "connect_code_expired": "⏰ Code expired. Please try /connect again.",
     "connect_phone_invalid": "❌ Invalid phone number. Please send your number in international format (e.g. +1234567890):",
+    "connect_phone_confirm": "📱 You entered: {phone_number}\n\nIs this number correct?",
+    "connect_phone_btn_confirm": "✅ Yes, that's correct",
+    "connect_phone_btn_cancel": "❌ No, re-enter",
+    "connect_btn_cancel": "❌ Cancel",
     "connect_phone_timeout": "⏰ Login timed out. Please try /connect again.",
     "connect_flood_wait": "⏳ Too many attempts. Please wait {seconds} seconds and try /connect again.",
 
@@ -93,6 +98,7 @@ SYSTEM_MESSAGES = {
     "settings_auto_reply_15m": "⏰ Auto-reply: ⚠️ 15 min",
     "settings_auto_reply_1h": "⏰ Auto-reply: ⚠️ 1 hour",
     "settings_auto_reply_16h": "⏰ Auto-reply: ⚠️ 16 hours",
+    "settings_auto_reply_ignore": "🔇 Ignore",
     "settings_timezone_back": "🕐 Time",
 
     # — Settings: Style — (генерируется из EMOJI_TO_STYLE)

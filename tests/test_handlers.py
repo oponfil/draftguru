@@ -1032,36 +1032,29 @@ class TestConnectPhoneFlow:
         assert _pending_phone[user_id]["state"] == "awaiting_phone"
 
     @pytest.mark.asyncio
-    async def test_phone_number_triggers_send_code(self, mock_update, mock_context):
-        """Ввод валидного номера → send_code() и переход в awaiting_code."""
+    async def test_phone_number_triggers_confirm(self, mock_update, mock_context):
+        """Ввод номера → подтверждение, переход в awaiting_confirm."""
         user_id = mock_update.effective_user.id
         _pending_phone[user_id] = {
             "state": "awaiting_phone",
             "language_code": "en",
             "chat_id": mock_update.effective_chat.id,
         }
-
-        mock_client = AsyncMock()
-        mock_sent_code = MagicMock()
-        mock_sent_code.phone_code_hash = "hash123"
-        mock_client.send_code = AsyncMock(return_value=mock_sent_code)
-        mock_client.connect = AsyncMock()
 
         mock_update.message.text = "+1234567890"
+        mock_update.message.message_id = 42
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter code"):
+        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
-        mock_client.send_code.assert_called_once_with("+1234567890")
-        mock_update.message.delete.assert_called_once()
-        assert _pending_phone[user_id]["state"] == "awaiting_code"
-        assert _pending_phone[user_id]["phone_code_hash"] == "hash123"
+        assert _pending_phone[user_id]["state"] == "awaiting_confirm"
+        assert _pending_phone[user_id]["phone_number"] == "+1234567890"
+        assert 42 in _pending_phone[user_id]["sensitive_msg_ids"]
 
     @pytest.mark.asyncio
-    async def test_invalid_phone_number_shows_error(self, mock_update, mock_context):
-        """Невалидный номер → ошибка, остаёмся в awaiting_phone."""
+    async def test_invalid_phone_number_goes_to_confirm_first(self, mock_update, mock_context):
+        """Невалидный номер → сначала подтверждение, ошибка при отправке кода тестируется в test_connect_flow.py."""
         user_id = mock_update.effective_user.id
         _pending_phone[user_id] = {
             "state": "awaiting_phone",
@@ -1069,25 +1062,16 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        class PhoneNumberInvalid(Exception):
-            pass
-
-        mock_client = AsyncMock()
-        mock_client.connect = AsyncMock()
-        mock_client.send_code = AsyncMock(side_effect=PhoneNumberInvalid())
-
         mock_update.message.text = "invalid"
+        mock_update.message.message_id = 55
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Invalid phone"):
+        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
-        mock_context.bot.send_message.assert_called_once_with(
-            chat_id=mock_update.effective_chat.id, text="Invalid phone",
-        )
-        # Остаёмся в awaiting_phone
-        assert _pending_phone[user_id]["state"] == "awaiting_phone"
+        # Номер нормализован и сохранён в awaiting_confirm
+        assert _pending_phone[user_id]["state"] == "awaiting_confirm"
+        assert _pending_phone[user_id]["phone_number"] == "+invalid"
 
     @pytest.mark.asyncio
     async def test_phone_code_success_saves_session(self, mock_update, mock_context):
@@ -1443,8 +1427,9 @@ class TestConnectPhoneFlow:
         mock_update.message.reply_text.assert_called_once_with("In progress")
 
     @pytest.mark.asyncio
-    async def test_flood_wait_shows_retry_time(self, mock_update, mock_context):
-        """FloodWait → показывает время ожидания."""
+    async def test_flood_wait_tested_via_confirm_callback(self, mock_update, mock_context):
+        """FloodWait тестируется через on_confirm_phone_callback в test_connect_flow.py.
+        Здесь проверяем, что ввод номера сначала идёт в awaiting_confirm."""
         user_id = mock_update.effective_user.id
         _pending_phone[user_id] = {
             "state": "awaiting_phone",
@@ -1452,29 +1437,18 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        class FloodWait(Exception):
-            def __init__(self):
-                self.value = 60
-
-        mock_client = AsyncMock()
-        mock_client.connect = AsyncMock()
-        mock_client.send_code = AsyncMock(side_effect=FloodWait())
-
         mock_update.message.text = "+1234567890"
+        mock_update.message.message_id = 77
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Wait {seconds}s"):
+        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
-        mock_context.bot.send_message.assert_called_once_with(
-            chat_id=mock_update.effective_chat.id, text="Wait 60s",
-        )
-        assert user_id not in _pending_phone
+        assert _pending_phone[user_id]["state"] == "awaiting_confirm"
 
     @pytest.mark.asyncio
-    async def test_phone_message_deleted_for_security(self, mock_update, mock_context):
-        """Номер телефона удаляется из чата."""
+    async def test_phone_message_stored_for_deferred_deletion(self, mock_update, mock_context):
+        """Номер телефона сохраняется для отложенного удаления (не удаляется сразу)."""
         user_id = mock_update.effective_user.id
         _pending_phone[user_id] = {
             "state": "awaiting_phone",
@@ -1482,20 +1456,17 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        mock_client = AsyncMock()
-        mock_sent_code = MagicMock()
-        mock_sent_code.phone_code_hash = "hash123"
-        mock_client.send_code = AsyncMock(return_value=mock_sent_code)
-        mock_client.connect = AsyncMock()
-
         mock_update.message.text = "+1234567890"
+        mock_update.message.message_id = 42
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter code"):
+        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
-        mock_update.message.delete.assert_called_once()
+        # Сообщение НЕ удалено сразу
+        mock_update.message.delete.assert_not_called()
+        # ID сохранён для отложенного удаления
+        assert 42 in _pending_phone[user_id]["sensitive_msg_ids"]
 
     @pytest.mark.asyncio
     async def test_expired_phone_flow_sends_timeout_and_stops(self, mock_update, mock_context):
@@ -1588,6 +1559,40 @@ class TestIgnoredChatIDs:
 
         assert found == 0
         mock_pc.get_last_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_pyrogram_message_skips_per_user_ignored_chat(self):
+        """on_pyrogram_message → return early для per-user ignored chat (sentinel -1)."""
+        message = MagicMock()
+        message.text = "Hello"
+        message.voice = None
+        message.sticker = None
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.chat = MagicMock()
+        message.chat.id = 999
+        message.chat.type = MagicMock(value="private")
+        message.id = 1
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={
+                 "settings": {"chat_auto_replies": {"999": -1}},
+             }):
+            mock_pc.read_chat_history = AsyncMock()
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        mock_pc.read_chat_history.assert_not_called()
+
+    def test_maybe_schedule_auto_reply_skips_per_user_ignored_chat(self):
+        """_maybe_schedule_auto_reply → не планирует для per-user ignored chat."""
+        with patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_sched:
+            _maybe_schedule_auto_reply(
+                {"chat_auto_replies": {"999": -1}},
+                user_id=123, chat_id=999, text="hello",
+            )
+
+        mock_sched.assert_not_called()
 
 
 class TestDefaultProModelRuntime:

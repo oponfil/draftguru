@@ -103,6 +103,7 @@ STICKER_FALLBACK_EMOJI = "□"  # Fallback для стикеров без при
 
 # ====== АВТООТВЕТ ======
 # {секунды: ключ сообщения} — None = выключено (по умолчанию)
+CHAT_IGNORED_SENTINEL = -1  # Sentinel: чат полностью игнорируется (нет черновиков и автоответа)
 AUTO_REPLY_OPTIONS: dict[int | None, str] = {
     None: "settings_auto_reply_off",
     60: "settings_auto_reply_1m",
@@ -110,6 +111,7 @@ AUTO_REPLY_OPTIONS: dict[int | None, str] = {
     900: "settings_auto_reply_15m",
     3600: "settings_auto_reply_1h",
     57600: "settings_auto_reply_16h",
+    CHAT_IGNORED_SENTINEL: "settings_auto_reply_ignore",
 }
 
 # Чаты, полностью игнорируемые ботом (не генерируются черновики и автоответы).
@@ -149,7 +151,7 @@ STYLE_OPTIONS: dict[str, str] = {
 }
 
 # Количество чатов в /styles для отображения
-CHAT_STYLES_DIALOGS_LIMIT = 15
+CHAT_STYLES_DIALOGS_LIMIT = 16
 
 # ====== ЧАСОВОЙ ПОЯС ======
 # 30 популярных UTC-смещений (часы); дробные: +3.5 Иран, +4.5 Афганистан,

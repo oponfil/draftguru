@@ -77,7 +77,7 @@ python bot.py
 
 The command menu is dynamic: `/connect` and `/disconnect` are shown based on connection status. `/chats` is only visible to connected users. `/start` is not shown in the menu.
 
-By default, `/connect` prompts for a phone number. A button below the message lets you switch to QR code. For `2FA`, the bot asks for the cloud password in a separate message and immediately deletes it. Phone number, confirmation code, and password are automatically deleted from chat.
+By default, `/connect` prompts for a phone number. A button below the message lets you switch to QR code. For `2FA`, the bot asks for the cloud password in a separate message. Phone number, confirmation code, and password are kept visible during authorization and automatically deleted after successful login or timeout.
 
 **Code masking:** During authorization, the bot will ask you to enter the confirmation code with letters or spaces (e.g. `12x345`) to prevent Telegram from blocking your login attempt.
 
@@ -97,7 +97,7 @@ By default, `/connect` prompts for a phone number. A button below the message le
 The `/chats` command shows only chats where the bot has actually set a draft or replied, as well as chats with custom settings. Each chat has two buttons:
 
 - **Style** (`🦉 Name`) — tap to cycle through styles
-- **Auto-reply** (`⏰`) — tap to cycle through auto-reply timers for this chat
+- **Auto-reply** (`⏰`) — tap to cycle through auto-reply timers for this chat. The last option in the cycle is **🔇 Ignore** — fully disables drafts, auto-replies, and message polling for that chat.
 
 Per-chat settings override the global ones from `/settings`. If a per-chat value matches the global one, the override is automatically cleared. Available only to connected users.
 

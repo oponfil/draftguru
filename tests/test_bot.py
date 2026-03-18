@@ -7,7 +7,7 @@ import pytest
 
 import bot as bot_module
 import utils.utils as utils_module
-from handlers.bot_handlers import on_start, on_text
+from handlers.bot_handlers import on_start, on_start_connect_callback, on_text
 from bot import on_error
 
 
@@ -29,16 +29,22 @@ class TestOnStart:
 
     @pytest.mark.asyncio
     async def test_sends_greeting(self, mock_update, mock_context):
-        """Отправляет приветствие на языке пользователя."""
+        """Отправляет приветствие на языке пользователя (с кнопкой Connect)."""
         with patch("handlers.bot_handlers.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
              patch("handlers.bot_handlers.update_tg_rating", new_callable=AsyncMock), \
              patch("handlers.bot_handlers.extract_rating_from_chat", return_value=None), \
              patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock, return_value="Привет!"), \
-             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock):
+             patch("handlers.bot_handlers.update_user_menu", new_callable=AsyncMock), \
+             patch("handlers.bot_handlers.pyrogram_client") as mock_pc:
+            mock_pc.is_active.return_value = False
 
             await on_start(mock_update, mock_context)
 
-        mock_update.message.reply_text.assert_called_with("Привет!")
+        mock_update.message.reply_text.assert_called_once()
+        call_args = mock_update.message.reply_text.call_args
+        assert call_args.args[0] == "Привет!"
+        # Кнопка Connect присутствует
+        assert call_args.kwargs.get("reply_markup") is not None
 
     @pytest.mark.asyncio
     async def test_updates_tg_rating(self, mock_update, mock_context):
@@ -70,6 +76,22 @@ class TestOnStart:
             mock_context.bot, mock_update.effective_user.id,
             mock_update.effective_user.language_code, False
         )
+
+
+class TestOnStartConnectCallback:
+    """Тесты для on_start_connect_callback()."""
+
+    @pytest.mark.asyncio
+    async def test_delegates_to_on_connect_without_deadlock(self, mock_update, mock_context):
+        """Колбэк с /start делегирует в on_connect и не застревает на повторном lock."""
+        mock_update.callback_query = AsyncMock()
+        mock_update.callback_query.answer = AsyncMock()
+        mock_update.callback_query.edit_message_reply_markup = AsyncMock()
+
+        with patch("handlers.bot_handlers.on_connect", new_callable=AsyncMock) as mock_on_connect:
+            await asyncio.wait_for(on_start_connect_callback(mock_update, mock_context), timeout=0.2)
+
+        mock_on_connect.assert_awaited_once_with(mock_update, mock_context)
 
 
 class TestOnText:

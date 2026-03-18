@@ -26,7 +26,6 @@ All `import` and `from ... import ...` statements must be **at the top of the fi
 
 ## 3. Formatting and Style
 
-- **Line Length**: 120 characters
 - **Quotes**: Double quotes `"` (Black standard)
 - **Type Hinting**: Mandatory for all functions (`def func(a: int) -> bool:`)
 - **Docstrings**: In **Russian**, mandatory for public functions
@@ -73,7 +72,8 @@ result = await asyncio.to_thread(blocking_function, arg1)
 We use **ruff** for code linting. Before every commit:
 
 ```bash
-ruff check .
+ruff check . --fix   # auto-fix what can be fixed
+ruff check .         # verify no remaining errors
 ```
 
 - All errors must be fixed before committing

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
 
-from config import AUTO_REPLY_OPTIONS, DEFAULT_PRO_MODEL, DEFAULT_STYLE, STYLE_PRO_MODELS
+from config import AUTO_REPLY_OPTIONS, CHAT_IGNORED_SENTINEL, DEFAULT_PRO_MODEL, DEFAULT_STYLE, STYLE_PRO_MODELS
 
 
 def get_effective_pro_model(settings: dict) -> bool:
@@ -254,3 +254,9 @@ def get_effective_auto_reply(settings: dict, chat_id: int | None = None) -> int 
             # 0 = явно выключено (OFF), None в JSON невозможен
             return None if per_chat == 0 else normalize_auto_reply(per_chat)
     return normalize_auto_reply(settings.get("auto_reply"))
+
+
+def is_chat_ignored(settings: dict, chat_id: int) -> bool:
+    """Возвращает True, если чат помечен как игнорируемый (per-chat sentinel -1)."""
+    chat_auto_replies = settings.get("chat_auto_replies") or {}
+    return chat_auto_replies.get(str(chat_id)) == CHAT_IGNORED_SENTINEL

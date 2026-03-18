@@ -23,10 +23,10 @@ from telegram.ext import (  # noqa: E402
 from config import BOT_TOKEN, BOT_READ_TIMEOUT, POLL_MISSED_INTERVAL, DEBUG_PRINT  # noqa: E402
 from utils.utils import get_timestamp  # noqa: E402
 from clients import pyrogram_client  # noqa: E402
-from handlers.bot_handlers import on_start, on_text  # noqa: E402
+from handlers.bot_handlers import on_start, on_start_connect_callback, on_text  # noqa: E402
 from handlers.pyrogram_handlers import (  # noqa: E402
     on_disconnect, on_connect, on_status, handle_connect_text,
-    on_connect_qr_callback,
+    on_connect_qr_callback, on_confirm_phone_callback, on_cancel_phone_callback, on_connect_cancel_callback,
     on_pyrogram_message, on_pyrogram_draft,
     poll_missed_messages,
 )
@@ -73,6 +73,10 @@ def main() -> None:
     app.add_handler(CommandHandler("status", on_status, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CommandHandler("disconnect", on_disconnect, filters=PRIVATE_ONLY_FILTER))
     app.add_handler(CallbackQueryHandler(on_connect_qr_callback, pattern=r"^connect:qr$"))
+    app.add_handler(CallbackQueryHandler(on_confirm_phone_callback, pattern=r"^connect:confirm_phone$"))
+    app.add_handler(CallbackQueryHandler(on_cancel_phone_callback, pattern=r"^connect:cancel_phone$"))
+    app.add_handler(CallbackQueryHandler(on_connect_cancel_callback, pattern=r"^connect:cancel$"))
+    app.add_handler(CallbackQueryHandler(on_start_connect_callback, pattern=r"^start:connect$"))
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, handle_connect_text), group=0)
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, on_text), group=1)
 

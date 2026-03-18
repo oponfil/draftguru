@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from config import EMOJI_TO_STYLE, STYLE_TO_EMOJI
-from utils.utils import get_effective_auto_reply, get_effective_style
+from utils.utils import get_effective_auto_reply, get_effective_style, is_chat_ignored
 from handlers.styles_handler import (
     _auto_reply_label,
     _chat_display_name,
@@ -97,6 +97,34 @@ class TestGetEffectiveAutoReply:
         settings = {"auto_reply": 60, "chat_auto_replies": {"100": 300}}
         assert get_effective_auto_reply(settings, chat_id=None) == 60
 
+    def test_per_chat_ignored(self):
+        """Сентинел -1 → возвращается как есть."""
+        settings = {"auto_reply": 60, "chat_auto_replies": {"100": -1}}
+        assert get_effective_auto_reply(settings, chat_id=100) == -1
+
+
+class TestIsChatIgnored:
+    """Тесты для is_chat_ignored()."""
+
+    def test_ignored_chat(self):
+        """Чат с sentinel -1 → ignored."""
+        settings = {"chat_auto_replies": {"100": -1}}
+        assert is_chat_ignored(settings, 100) is True
+
+    def test_not_ignored_chat(self):
+        """Обычный чат → not ignored."""
+        settings = {"chat_auto_replies": {"100": 60}}
+        assert is_chat_ignored(settings, 100) is False
+
+    def test_no_override(self):
+        """Чат без override → not ignored."""
+        assert is_chat_ignored({}, 100) is False
+
+    def test_global_irrelevant(self):
+        """Глобальный auto_reply не делает чат ignored."""
+        settings = {"auto_reply": -1}
+        assert is_chat_ignored(settings, 100) is False
+
 
 # ====== Config mappings ======
 
@@ -164,6 +192,9 @@ class TestStylesHelpers:
     def test_auto_reply_label_hours(self):
         assert _auto_reply_label(3600) == "⏰: ⚠️ 1 hour"
         assert _auto_reply_label(57600) == "⏰: ⚠️ 16 hours"
+
+    def test_auto_reply_label_ignore(self):
+        assert _auto_reply_label(-1) == "🔇 Ignore"
 
     def test_chat_display_name_full(self):
         assert _chat_display_name({"first_name": "Алиса", "last_name": "Б.", "title": ""}) == "Алиса Б."
