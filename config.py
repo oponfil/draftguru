@@ -73,7 +73,7 @@ SYSTEM_MESSAGE_TRANSLATION_TIMEOUT = 60
 SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS = 300.0
 
 # ====== КОНТЕКСТ ======
-MAX_CONTEXT_MESSAGES = 40  # Макс. кол-во сообщений из чата для контекста
+MAX_CONTEXT_MESSAGES = 30  # Макс. кол-во сообщений из чата для контекста
 MAX_CONTEXT_CHARS = 16000  # Макс. суммарная длина текста в истории (символы)
 
 # ====== QR LOGIN ======

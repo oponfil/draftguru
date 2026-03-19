@@ -15,7 +15,7 @@ Auto-replies work in private chats only. Draft instructions work everywhere.
 ## Security
 
 - By default, the bot **only writes drafts** and never sends messages on your behalf. Auto-sending is only possible when the auto-reply timer is explicitly enabled in `/settings`.
-- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is limited to the last 40 messages or 16,000 characters (whichever comes first); older messages are dropped.
+- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is limited to the last 30 messages or 16,000 characters (whichever comes first); older messages are dropped.
 - **Saved Messages** (self-chat) and **Telegram service notifications** are fully ignored — the bot doesn't read, draft, or process messages in them. Additional chats can be excluded via `IGNORED_CHAT_IDS` in `config.py`.
 - Telegram sessions are encrypted with `Fernet` (`SESSION_ENCRYPTION_KEY`) before being stored in the database.
 
@@ -121,7 +121,7 @@ You can combine: `😈 tell her I miss her` — switches the style to Seducer an
 
 ### Voice Messages and Stickers
 
-All voice messages in the chat history — from both sides (yours and the contact's) — are automatically transcribed via Telegram Premium `TranscribeAudio` and included in the AI context as text. Multiple voice messages are transcribed in parallel. If transcription fails (e.g. no Premium), the message is included as `[voice message]` so the AI still knows a voice was sent. Requires Telegram Premium on the connected account (or trial attempts for free users).
+All voice messages in the chat history — from both sides (yours and the contact's) — are automatically transcribed via Telegram Premium `TranscribeAudio` and included in the AI context as text. Voice messages are transcribed sequentially to avoid Telegram rate limits; results are cached so repeated reads don't re-transcribe. If transcription fails (e.g. no Premium), the message is included as `[voice message]` so the AI still knows a voice was sent. Requires Telegram Premium on the connected account (or trial attempts for free users).
 
 Stickers are processed by emoji — the bot sees the sticker's emoji in the conversation context and generates an appropriate reply.
 

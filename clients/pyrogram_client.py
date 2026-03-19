@@ -259,16 +259,18 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
                 voice_indices.append(idx)
                 voice_msg_ids.append(msg.id)
 
-        # Транскрибируем все голосовые параллельно
+        # Транскрибируем голосовые последовательно (параллельные вызовы
+        # вызывают FLOOD_WAIT от Telegram). Кэш в transcribe_voice()
+        # гарантирует, что повторные вызовы не обращаются к API.
         if voice_indices:
-            transcriptions = await asyncio.gather(
-                *(transcribe_voice(user_id, chat_id, mid) for mid in voice_msg_ids),
-            )
-            for idx, transcription in zip(voice_indices, transcriptions):
+            ok_count = 0
+            for idx, mid in zip(voice_indices, voice_msg_ids):
+                transcription = await transcribe_voice(user_id, chat_id, mid)
                 messages[idx]["text"] = transcription or "[voice message]"
+                if transcription:
+                    ok_count += 1
 
             if DEBUG_PRINT:
-                ok_count = sum(1 for t in transcriptions if t)
                 print(
                     f"{get_timestamp()} [PYROGRAM] Transcribed {ok_count}/{len(voice_indices)} "
                     f"voice messages in chat {chat_id}"

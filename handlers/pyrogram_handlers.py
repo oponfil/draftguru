@@ -693,9 +693,25 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         user_settings = (user or {}).get("settings") or {}
 
         if not instruction:
-            # Только emoji без инструкции — генерируем ответ как on_pyrogram_message
+            # Только emoji без инструкции — ждём выхода из чата, потом генерируем
             _cancel_auto_reply(key)
             _bot_drafts.pop(key, None)
+            _pending_drafts[key] = draft_text
+
+            await asyncio.sleep(DRAFT_PROBE_DELAY)
+
+            # Проверяем: пользователь не изменил черновик за время ожидания
+            if _pending_drafts.get(key) != draft_text:
+                return
+            _pending_drafts.pop(key, None)
+
+            if DEBUG_PRINT:
+                print(
+                    f"{get_timestamp()} [DRAFT] Processing emoji shortcut for {user_id} "
+                    f"in chat {chat_id}: {emoji_style!r}"
+                )
+
+            # Пользователь вышел — показываем пробу и генерируем
             probe_text = (await get_system_message(lang, "draft_typing")).format(emoji=STYLE_TO_EMOJI.get(emoji_style, "🦉"))
             _bot_draft_echoes[key] = probe_text
             await pyrogram_client.set_draft(user_id, chat_id, probe_text)
