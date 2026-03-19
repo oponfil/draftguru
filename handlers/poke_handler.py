@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 
 from config import (
     ACTIVE_CHATS_LIMIT,
+    CHATS_FETCH_LIMIT,
     DEBUG_PRINT,
     IGNORED_CHAT_IDS,
     POKE_FOLLOW_UP_TIMEOUT,
@@ -55,7 +56,8 @@ async def on_poke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         print(f"{get_timestamp()} [POKE] /poke from user {u.id}")
 
     # Получаем список чатов
-    chat_ids = await pyrogram_client.get_private_dialogs(u.id, limit=ACTIVE_CHATS_LIMIT)
+    chat_ids = await pyrogram_client.get_private_dialogs(u.id, limit=CHATS_FETCH_LIMIT)
+    chat_ids = chat_ids[:ACTIVE_CHATS_LIMIT]
 
     user = await get_user(u.id)
     user_settings = (user or {}).get("settings") or {}

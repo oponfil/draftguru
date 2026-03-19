@@ -9,6 +9,7 @@ from clients import pyrogram_client
 from config import (
     AUTO_REPLY_OPTIONS,
     ACTIVE_CHATS_LIMIT,
+    CHATS_FETCH_LIMIT,
     DEBUG_PRINT,
     DEFAULT_STYLE,
     STYLE_OPTIONS,
@@ -137,7 +138,7 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Получаем широкий список диалогов для фильтрации
     all_dialogs = await pyrogram_client.get_dialog_info(
-        u.id, limit=ACTIVE_CHATS_LIMIT * 10,
+        u.id, limit=CHATS_FETCH_LIMIT,
     )
 
     dialogs = _get_relevant_dialogs(all_dialogs, user_settings, u.id)
@@ -167,7 +168,7 @@ async def _refresh_keyboard(
     dialogs = context.user_data.get("chats_dialogs") or []
     if not dialogs:
         all_dialogs = await pyrogram_client.get_dialog_info(
-            u.id, limit=ACTIVE_CHATS_LIMIT * 10,
+            u.id, limit=CHATS_FETCH_LIMIT,
         )
         dialogs = _get_relevant_dialogs(all_dialogs, updated_settings, u.id)
     else:
