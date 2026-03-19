@@ -17,8 +17,8 @@ from config import (
 from database.users import get_user, update_chat_auto_reply, update_chat_prompt, update_chat_style, update_last_msg_at
 from handlers.pyrogram_handlers import get_replied_chats
 from system_messages import get_system_message, get_system_messages
+from handlers.connect_handler import clear_pending_input
 from utils.utils import (
-    clear_pending_input,
     get_effective_auto_reply,
     get_effective_style,
     get_timestamp,

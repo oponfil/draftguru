@@ -281,11 +281,3 @@ def get_effective_prompt(settings: dict, chat_id: int | None = None) -> str:
         return f"{global_prompt}\n{per_chat}"
     return global_prompt or per_chat
 
-
-async def clear_pending_input(context: object, user_id: int, bot: object) -> None:
-    """Сбрасывает все состояния ожидания текстового ввода (prompt + connect flow)."""
-    context.user_data.pop("awaiting_prompt", None)
-    context.user_data.pop("awaiting_chat_prompt", None)
-    from handlers.pyrogram_handlers import cancel_pending_2fa, cancel_pending_phone  # circular dependency
-    await cancel_pending_2fa(user_id)
-    await cancel_pending_phone(user_id, bot=bot)

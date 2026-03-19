@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from telegram.ext import ApplicationHandlerStop
 
-from handlers.pyrogram_handlers import (
+from handlers.connect_handler import (
     _delete_sensitive_messages,
     _get_pending_phone,
     _pending_phone,
@@ -110,7 +110,7 @@ class TestGetPendingPhone:
         bot = AsyncMock()
         bot.delete_message = AsyncMock()
 
-        with patch("handlers.pyrogram_handlers.time.monotonic", return_value=2):
+        with patch("handlers.connect_handler.time.monotonic", return_value=2):
             pending = await _get_pending_phone(user_id, bot=bot)
 
         assert pending is None
@@ -137,7 +137,7 @@ class TestHandlePhoneNumber:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -161,7 +161,7 @@ class TestHandlePhoneNumber:
             "sensitive_msg_ids": [42],  # предыдущий номер
         }
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -170,7 +170,6 @@ class TestHandlePhoneNumber:
         assert 42 in ids
         assert 99 in ids
         assert len(ids) == 3  # 42 + 99 + bot confirmation message
-
 
 # ====== on_confirm_phone_callback ======
 
@@ -184,7 +183,7 @@ class TestOnConfirmPhoneCallback:
         update = _make_callback_update()
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_confirm_phone_callback(update, context)
 
         update.callback_query.edit_message_text.assert_called_once_with("Timed out")
@@ -202,7 +201,7 @@ class TestOnConfirmPhoneCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_confirm_phone_callback(update, context)
 
         update.callback_query.edit_message_text.assert_called_once_with("Timed out")
@@ -227,9 +226,9 @@ class TestOnConfirmPhoneCallback:
         mock_sent_code.phone_code_hash = "hash123"
         mock_client.send_code = AsyncMock(return_value=mock_sent_code)
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter code"), \
-             patch("handlers.pyrogram_handlers.keep_typing"):
+        with patch("handlers.connect_handler.Client", return_value=mock_client), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter code"), \
+             patch("handlers.connect_handler.keep_typing"):
             await on_confirm_phone_callback(update, context)
 
         assert _pending_phone[user_id]["state"] == "awaiting_code"
@@ -261,9 +260,9 @@ class TestOnConfirmPhoneCallback:
 
         mock_client.send_code = AsyncMock(side_effect=PhoneNumberInvalid())
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Invalid phone"), \
-             patch("handlers.pyrogram_handlers.keep_typing"):
+        with patch("handlers.connect_handler.Client", return_value=mock_client), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Invalid phone"), \
+             patch("handlers.connect_handler.keep_typing"):
             await on_confirm_phone_callback(update, context)
 
         assert _pending_phone[user_id]["state"] == "awaiting_phone"
@@ -292,9 +291,9 @@ class TestOnConfirmPhoneCallback:
 
         mock_client.send_code = AsyncMock(side_effect=FloodWait(15))
 
-        with patch("handlers.pyrogram_handlers.Client", return_value=mock_client), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Flood"), \
-             patch("handlers.pyrogram_handlers.keep_typing"):
+        with patch("handlers.connect_handler.Client", return_value=mock_client), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Flood"), \
+             patch("handlers.connect_handler.keep_typing"):
             await on_confirm_phone_callback(update, context)
 
         assert user_id not in _pending_phone
@@ -322,7 +321,7 @@ class TestOnCancelPhoneCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
             await on_cancel_phone_callback(update, context)
 
         assert _pending_phone[user_id]["state"] == "awaiting_phone"
@@ -342,7 +341,7 @@ class TestOnCancelPhoneCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
             await on_cancel_phone_callback(update, context)
 
         assert _pending_phone[user_id]["sensitive_msg_ids"] == [42, 99]
@@ -353,7 +352,7 @@ class TestOnCancelPhoneCallback:
         update = _make_callback_update()
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_cancel_phone_callback(update, context)
 
         update.callback_query.edit_message_text.assert_called_once_with("Timed out")
@@ -379,7 +378,7 @@ class TestOnConnectCancelCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_connect_cancel_callback(update, context)
 
         assert user_id not in _pending_phone
@@ -397,7 +396,7 @@ class TestOnConnectCancelCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_connect_cancel_callback(update, context)
 
         mock_task.cancel.assert_called_once()
@@ -417,7 +416,7 @@ class TestOnConnectCancelCallback:
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_connect_cancel_callback(update, context)
 
         assert user_id not in _pending_2fa
@@ -429,7 +428,7 @@ class TestOnConnectCancelCallback:
         update = _make_callback_update()
         context = _make_context()
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             await on_connect_cancel_callback(update, context)
 
         update.callback_query.edit_message_reply_markup.assert_called_once_with(reply_markup=None)
@@ -462,7 +461,7 @@ class TestHandlePhoneCodeCleanup:
             "sensitive_msg_ids": [42],
         }
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Expired"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Expired"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 

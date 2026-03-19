@@ -133,17 +133,20 @@ class TestReadChatHistory:
 
         msg1 = MagicMock()
         msg1.text = "Привет"
+        msg1.voice = None
         msg1.from_user = MagicMock()
         msg1.from_user.id = 300  # Это пользователь
 
         msg2 = MagicMock()
         msg2.text = "Ответ"
+        msg2.voice = None
         msg2.from_user = MagicMock()
         msg2.from_user.id = 400  # Это собеседник
 
         msg3 = MagicMock()
         msg3.text = None  # Без текста — пропускается
         msg3.sticker = None  # И не стикер
+        msg3.voice = None   # И не голосовое
 
         async def mock_get_history(*args, **kwargs):
             for m in [msg1, msg2, msg3]:
@@ -201,6 +204,144 @@ class TestReadChatHistory:
         assert result[0]["text"] == "Привет"
         assert result[1]["text"] == "😂"
         assert result[2]["text"] == STICKER_FALLBACK_EMOJI
+
+        del pyrogram_client._active_clients[300]
+
+    @pytest.mark.asyncio
+    async def test_voice_messages_transcribed_in_history(self):
+        """Голосовые сообщения с обеих сторон транскрибируются."""
+        mock_client = AsyncMock()
+
+        msg_text = MagicMock()
+        msg_text.text = "Привет"
+        msg_text.sticker = None
+        msg_text.voice = None
+        msg_text.from_user = MagicMock()
+        msg_text.from_user.id = 400  # оппонент
+
+        msg_voice_other = MagicMock()
+        msg_voice_other.text = None
+        msg_voice_other.sticker = None
+        msg_voice_other.voice = MagicMock()
+        msg_voice_other.id = 10
+        msg_voice_other.from_user = MagicMock()
+        msg_voice_other.from_user.id = 400  # оппонент
+
+        msg_voice_user = MagicMock()
+        msg_voice_user.text = None
+        msg_voice_user.sticker = None
+        msg_voice_user.voice = MagicMock()
+        msg_voice_user.id = 11
+        msg_voice_user.from_user = MagicMock()
+        msg_voice_user.from_user.id = 300  # пользователь
+
+        # get_chat_history returns newest first
+        async def mock_get_history(*args, **kwargs):
+            for m in [msg_voice_user, msg_voice_other, msg_text]:
+                yield m
+
+        mock_client.get_chat_history = mock_get_history
+        pyrogram_client._active_clients[300] = mock_client
+
+        with patch.object(pyrogram_client, "transcribe_voice", new_callable=AsyncMock) as mock_transcribe:
+            mock_transcribe.side_effect = lambda uid, cid, mid: {
+                10: "Привет из голосового",
+                11: "Мой ответ голосом",
+            }.get(mid)
+
+            result = await pyrogram_client.read_chat_history(300, 400, limit=10)
+
+        assert len(result) == 3
+        # Reversed: msg_text → msg_voice_other → msg_voice_user
+        assert result[0]["text"] == "Привет"
+        assert result[1]["text"] == "Привет из голосового"
+        assert result[1]["role"] == "other"
+        assert result[2]["text"] == "Мой ответ голосом"
+        assert result[2]["role"] == "user"
+        assert mock_transcribe.call_count == 2
+
+        del pyrogram_client._active_clients[300]
+
+    @pytest.mark.asyncio
+    async def test_voice_transcription_failure_uses_fallback(self):
+        """Если транскрипция не удалась — подставляется '[voice message]'."""
+        mock_client = AsyncMock()
+
+        msg_voice = MagicMock()
+        msg_voice.text = None
+        msg_voice.sticker = None
+        msg_voice.voice = MagicMock()
+        msg_voice.id = 10
+        msg_voice.from_user = MagicMock()
+        msg_voice.from_user.id = 400
+
+        async def mock_get_history(*args, **kwargs):
+            yield msg_voice
+
+        mock_client.get_chat_history = mock_get_history
+        pyrogram_client._active_clients[300] = mock_client
+
+        with patch.object(pyrogram_client, "transcribe_voice", new_callable=AsyncMock, return_value=None):
+            result = await pyrogram_client.read_chat_history(300, 400, limit=10)
+
+        assert len(result) == 1
+        assert result[0]["text"] == "[voice message]"
+
+        del pyrogram_client._active_clients[300]
+
+    @pytest.mark.asyncio
+    async def test_respects_message_count_limit(self):
+        """limit ограничивает количество сообщений, переданных в get_chat_history."""
+        mock_client = AsyncMock()
+        calls = []
+
+        async def mock_get_history(*args, **kwargs):
+            calls.append(kwargs)
+            # Возвращаем 3 сообщения, как будто API вернул ровно limit
+            for i in range(3):
+                msg = MagicMock()
+                msg.text = f"msg{i}"
+                msg.sticker = None
+                msg.voice = None
+                msg.from_user = MagicMock()
+                msg.from_user.id = 400
+                yield msg
+
+        mock_client.get_chat_history = mock_get_history
+        pyrogram_client._active_clients[300] = mock_client
+
+        result = await pyrogram_client.read_chat_history(300, 400, limit=3)
+
+        assert len(result) == 3
+        assert calls[0]["limit"] == 3
+
+        del pyrogram_client._active_clients[300]
+
+    @pytest.mark.asyncio
+    async def test_truncates_by_total_char_length(self):
+        """Если суммарная длина текста превышает MAX_CONTEXT_CHARS — старые сообщения обрезаются."""
+        mock_client = AsyncMock()
+
+        # 3 сообщения по 6000 символов = 18000 > MAX_CONTEXT_CHARS (16000)
+        async def mock_get_history(*args, **kwargs):
+            for i in range(3):
+                msg = MagicMock()
+                msg.text = "A" * 6000
+                msg.sticker = None
+                msg.voice = None
+                msg.from_user = MagicMock()
+                msg.from_user.id = 400
+                yield msg
+
+        mock_client.get_chat_history = mock_get_history
+        pyrogram_client._active_clients[300] = mock_client
+
+        result = await pyrogram_client.read_chat_history(300, 400, limit=10)
+
+        # 18000 > 16000 → первое (самое старое) сообщение убрано, осталось 2
+        assert len(result) == 2
+        total = sum(len(m["text"]) for m in result)
+        assert total <= 16000
 
         del pyrogram_client._active_clients[300]
 
@@ -345,6 +486,9 @@ class TestHandleRawNewMessage:
 
 class TestTranscribeVoice:
     """Тесты для transcribe_voice()."""
+
+    def teardown_method(self):
+        pyrogram_client._transcription_cache.clear()
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_client(self):

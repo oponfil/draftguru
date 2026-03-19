@@ -16,8 +16,8 @@ from handlers.styles_handler import (
 
 CHAT_MESSAGES = {
     "chats_title": "Chat Styles",
-    "chats_prompt_set": "📝 ✅ ON",
-    "chats_prompt_empty": "📝 ❌ OFF",
+    "chats_prompt_set": "📝✅",
+    "chats_prompt_empty": "📝",
     "auto_reply_off": "✅ OFF",
     "auto_reply_1m": "⚠️ 1 min",
     "auto_reply_5m": "⚠️ 5 min",
@@ -236,7 +236,7 @@ class TestStylesHelpers:
         assert len(buttons) == 2
         # Каждый ряд — 3 кнопки: промпт + стиль + автоответ
         assert len(buttons[0]) == 3
-        assert buttons[0][0].text == "📝 ❌ OFF"
+        assert buttons[0][0].text == "📝"
         assert buttons[0][0].callback_data == "chatprompt:100"
         assert "💕" in buttons[0][1].text  # per-chat override
         assert "Алиса" in buttons[0][1].text

@@ -103,6 +103,10 @@ feat(bot): add /start command with greeting message
 - Update README with /start usage
 ```
 
+### Execution Rule
+❌ It is strictly prohibited to combine commands (e.g. using `;` or `&&`).
+✅ Every command must be executed strictly one by one.
+
 ### PowerShell Workflow
 ```powershell
 # Write commit message to a file

@@ -16,7 +16,7 @@ from database.users import update_chat_prompt, update_last_msg_at, update_tg_rat
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
-from handlers.pyrogram_handlers import on_connect
+from handlers.connect_handler import on_connect
 
 
 @serialize_user_updates
@@ -63,7 +63,13 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_start_connect_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback кнопки 'Connect' из приветственного сообщения."""
+    """Callback кнопки 'Connect' из приветственного сообщения.
+    
+    ВНИМАНИЕ: Без декоратора @serialize_user_updates!
+    Функция только убирает кнопку и делегирует вызов в on_connect, который
+    уже удерживает этот lock. Так как asyncio.Lock не reentrant, добавление
+    декоратора сюда приведёт к вечной блокировке (deadlock) для пользователя.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -87,12 +93,43 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message_text = m.text or ""
     awaiting_prompt_input = (
         context.user_data.get("awaiting_prompt")
-        or context.user_data.get("awaiting_chat_prompt") is not None
+        or (context.user_data.get("awaiting_chat_prompt") is not None)
     )
     if not message_text.strip() and not awaiting_prompt_input:
         return
 
     await _process_text(update, context, u, m, message_text)
+
+
+async def _handle_prompt_save(
+    u: User, m: Message, context: ContextTypes.DEFAULT_TYPE, prompt_text: str, max_length: int,
+    save_coro, msg_saved: str, msg_trunc: str, is_clearing: bool = False, msg_cleared: str | None = None
+) -> None:
+    """Вспомогательная функция для сохранения промпта и отправки уведомления."""
+    was_truncated = len(prompt_text) > max_length
+    if was_truncated:
+        prompt_text = prompt_text[:max_length]
+
+    saved = await save_coro
+    if not saved:
+        error_msg = await get_system_message(u.language_code, "error")
+        await m.reply_text(error_msg)
+        return
+
+    context.user_data.pop("awaiting_chat_prompt", None)
+    context.user_data.pop("awaiting_prompt", None)
+
+    if is_clearing and msg_cleared:
+        msg_key = msg_cleared
+    else:
+        msg_key = msg_trunc if was_truncated else msg_saved
+
+    msg = await get_system_message(u.language_code, msg_key)
+    if was_truncated:
+        msg = msg.format(max_length=max_length)
+    await m.reply_text(msg)
+    if DEBUG_PRINT:
+        print(f"{get_timestamp()} [BOT] Prompt saved for user {u.id}: {len(prompt_text)} chars")
 
 
 async def _process_text(
@@ -105,56 +142,25 @@ async def _process_text(
     if chat_prompt_chat_id is not None:
         prompt_text = message_text.strip()
         is_clearing_prompt = prompt_text == ""
-        was_truncated = len(prompt_text) > CHAT_PROMPT_MAX_LENGTH
-        if was_truncated:
-            prompt_text = prompt_text[:CHAT_PROMPT_MAX_LENGTH]
-
-        saved = await update_chat_prompt(
-            u.id,
-            chat_prompt_chat_id,
-            None if is_clearing_prompt else prompt_text,
+        
+        save_coro = update_chat_prompt(
+            u.id, chat_prompt_chat_id, None if is_clearing_prompt else prompt_text[:CHAT_PROMPT_MAX_LENGTH]
         )
-        if not saved:
-            error_msg = await get_system_message(u.language_code, "error")
-            await m.reply_text(error_msg)
-            return
-
-        context.user_data.pop("awaiting_chat_prompt", None)
-        context.user_data.pop("awaiting_prompt", None)
-        if is_clearing_prompt:
-            message_key = "settings_prompt_cleared"
-        else:
-            message_key = "settings_prompt_truncated" if was_truncated else "settings_prompt_saved"
-        msg = await get_system_message(u.language_code, message_key)
-        if was_truncated:
-            msg = msg.format(max_length=CHAT_PROMPT_MAX_LENGTH)
-        await m.reply_text(msg)
-        if DEBUG_PRINT:
-            print(f"{get_timestamp()} [BOT] Chat prompt saved for user {u.id}, chat {chat_prompt_chat_id}: {len(prompt_text)} chars")
+        await _handle_prompt_save(
+            u, m, context, prompt_text, CHAT_PROMPT_MAX_LENGTH, save_coro,
+            msg_saved="settings_prompt_saved", msg_trunc="settings_prompt_truncated",
+            is_clearing=is_clearing_prompt, msg_cleared="settings_prompt_cleared"
+        )
         return
 
     # Проверяем: пользователь вводит кастомный промпт?
     if context.user_data.get("awaiting_prompt"):
         prompt_text = message_text.strip()
-        was_truncated = len(prompt_text) > USER_PROMPT_MAX_LENGTH
-        if was_truncated:
-            prompt_text = prompt_text[:USER_PROMPT_MAX_LENGTH]
-
-        saved = await update_user_settings(u.id, {"custom_prompt": prompt_text})
-        if not saved:
-            error_msg = await get_system_message(u.language_code, "error")
-            await m.reply_text(error_msg)
-            return
-
-        context.user_data.pop("awaiting_prompt", None)
-        context.user_data.pop("awaiting_chat_prompt", None)
-        message_key = "settings_prompt_truncated" if was_truncated else "settings_prompt_saved"
-        msg = await get_system_message(u.language_code, message_key)
-        if was_truncated:
-            msg = msg.format(max_length=USER_PROMPT_MAX_LENGTH)
-        await m.reply_text(msg)
-        if DEBUG_PRINT:
-            print(f"{get_timestamp()} [BOT] Custom prompt saved for user {u.id}: {len(prompt_text)} chars")
+        save_coro = update_user_settings(u.id, {"custom_prompt": prompt_text[:USER_PROMPT_MAX_LENGTH]})
+        await _handle_prompt_save(
+            u, m, context, prompt_text, USER_PROMPT_MAX_LENGTH, save_coro,
+            msg_saved="settings_prompt_saved", msg_trunc="settings_prompt_truncated",
+        )
         return
 
     try:

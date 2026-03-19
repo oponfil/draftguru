@@ -11,8 +11,8 @@ from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS, TIMEZONE_OFFS
 from database.users import update_last_msg_at, update_user_settings
 from system_messages import get_system_message, get_system_messages
 from utils.telegram_user import ensure_effective_user
+from handlers.connect_handler import clear_pending_input
 from utils.utils import (
-    clear_pending_input,
     get_effective_drafts,
     get_effective_pro_model,
     get_timestamp,

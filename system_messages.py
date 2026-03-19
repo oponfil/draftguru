@@ -121,8 +121,8 @@ SYSTEM_MESSAGES = {
     "chats_title": "🎭 Chats\nTap to change prompt, style, or auto-reply timer.",
     "chats_not_connected": "🔌 Connect your account first with /connect.",
     "chats_no_chats": "No active chats found. Start a conversation first.",
-    "chats_prompt_set": "📝: ✅ ON",
-    "chats_prompt_empty": "📝: ❌ OFF",
+    "chats_prompt_set": "📝✅",
+    "chats_prompt_empty": "📝",
 
 
     # — Chats: per-chat prompt —

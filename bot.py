@@ -25,12 +25,16 @@ from utils.utils import get_timestamp  # noqa: E402
 from clients import pyrogram_client  # noqa: E402
 from handlers.bot_handlers import on_start, on_start_connect_callback, on_text  # noqa: E402
 from handlers.pyrogram_handlers import (  # noqa: E402
-    on_disconnect, on_connect, on_status, handle_connect_text,
-    on_connect_qr_callback, on_confirm_phone_callback, on_cancel_phone_callback, on_connect_cancel_callback,
+    on_disconnect, on_status,
     on_disconnect_confirm_callback, on_disconnect_cancel_callback,
     on_pyrogram_message, on_pyrogram_draft,
     poll_missed_messages,
 )
+from handlers.connect_handler import (  # noqa: E402
+    on_connect, handle_connect_text,
+    on_connect_qr_callback, on_confirm_phone_callback, on_cancel_phone_callback, on_connect_cancel_callback,
+)
+
 from handlers.settings_handler import on_settings, on_settings_callback  # noqa: E402
 from handlers.styles_handler import (  # noqa: E402
     on_auto_reply_callback, on_chat_prompt_callback, on_chat_prompt_cancel_callback,

@@ -10,24 +10,26 @@ from handlers.pyrogram_handlers import (
     _bot_drafts,
     _bot_draft_echoes,
     _maybe_schedule_auto_reply,
-    _pending_2fa,
     _pending_drafts,
-    _pending_phone,
-    _poll_qr_login,
     _processed_incoming_ids,
     _regenerate_reply,
     _reply_locks,
     _reply_pending,
-    handle_2fa_password,
-    handle_connect_text,
-    on_connect_qr_callback,
     on_disconnect, on_disconnect_confirm_callback, on_disconnect_cancel_callback,
-    on_connect,
     on_pyrogram_draft,
     on_pyrogram_message,
     on_status,
     _verify_draft_delivery,
     poll_missed_messages,
+)
+from handlers.connect_handler import (
+    _pending_2fa,
+    _pending_phone,
+    _poll_qr_login,
+    handle_2fa_password,
+    handle_connect_text,
+    on_connect_qr_callback,
+    on_connect,
 )
 from system_messages import SYSTEM_MESSAGES
 from utils.bot_utils import update_user_menu
@@ -218,12 +220,16 @@ class TestOnDisconnectCallbacks:
 
     @pytest.mark.asyncio
     async def test_cancel_removes_buttons(self, mock_context):
-        """Отмена → убирает кнопки."""
+        """Отмена → убирает кнопки и показывает статус."""
         update = self._make_callback_update()
-        await on_disconnect_cancel_callback(update, mock_context)
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+            mock_pc.is_active.return_value = True
+            await on_disconnect_cancel_callback(update, mock_context)
 
         update.callback_query.answer.assert_called_once()
         update.callback_query.edit_message_reply_markup.assert_called_once_with(reply_markup=None)
+        mock_context.bot.send_message.assert_called_once()
 
 
 class TestOnStatus:
@@ -256,10 +262,10 @@ class TestOnConnect:
     @pytest.mark.asyncio
     async def test_connect_upserts_user_and_shows_phone_prompt(self, mock_update, mock_context):
         """`/connect` должен создавать пользователя и показывать phone prompt с кнопкой QR."""
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.upsert_effective_user", new_callable=AsyncMock, return_value=True) as mock_upsert, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter phone"), \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.upsert_effective_user", new_callable=AsyncMock, return_value=True) as mock_upsert, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter phone"), \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -272,9 +278,9 @@ class TestOnConnect:
 
     @pytest.mark.asyncio
     async def test_connect_rejects_when_qr_login_already_running(self, mock_update, mock_context):
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=MagicMock()), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="In progress"):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=MagicMock()), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="In progress"):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -289,9 +295,9 @@ class TestOnConnect:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="In progress"):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="In progress"):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -303,10 +309,10 @@ class TestOnConnect:
         """Сбой при показе phone prompt не должен оставлять пользователя в зависшем flow."""
         user_id = mock_update.effective_user.id
 
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -325,10 +331,10 @@ class TestOnConnect:
         mock_client.export_session_string = AsyncMock(return_value="session-123")
         mock_client.disconnect = AsyncMock()
 
-        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True) as mock_save_session, \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True) as mock_save_session, \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
@@ -350,10 +356,10 @@ class TestOnConnect:
         mock_client.export_session_string = AsyncMock(return_value="session-123")
         mock_client.disconnect = AsyncMock()
 
-        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=False), \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=False), \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
@@ -372,11 +378,11 @@ class TestOnConnect:
         mock_client.export_session_string = AsyncMock(return_value="session-123")
         mock_client.disconnect = AsyncMock()
 
-        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers.clear_session", new_callable=AsyncMock, return_value=True) as mock_clear, \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler.clear_session", new_callable=AsyncMock, return_value=True) as mock_clear, \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
             mock_pc.start_listening = AsyncMock(return_value=False)
 
             await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
@@ -397,10 +403,10 @@ class TestOnConnect:
         mock_client.disconnect = AsyncMock()
         mock_client.storage = AsyncMock()
 
-        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="OK"):
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="OK"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
@@ -424,10 +430,10 @@ class TestOnConnect:
         mock_client.storage.dc_id = AsyncMock()
         mock_client.storage.auth_key = AsyncMock(return_value=b"key")
 
-        with patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
-             patch("handlers.pyrogram_handlers.Auth") as mock_auth_cls, \
-             patch("handlers.pyrogram_handlers.PyroSession") as mock_pyro_session, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter 2FA password"):
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.Auth") as mock_auth_cls, \
+             patch("handlers.connect_handler.PyroSession") as mock_pyro_session, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter 2FA password"):
             mock_auth_cls.return_value.create = AsyncMock(return_value=b"new_key")
             mock_pyro_session.return_value = AsyncMock()
 
@@ -475,12 +481,22 @@ class TestOnPyrogramMessage:
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
 
+        # read_chat_history теперь сам транскрибирует голосовые
+        voice_history = [{
+            "role": "other",
+            "text": "Привет, как дела?",
+            "date": "2026-03-15T10:00:00Z",
+            "name": "Test",
+            "last_name": "User",
+            "username": "testuser",
+        }]
+
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT):
             mock_pc.transcribe_voice = AsyncMock(return_value="Привет, как дела?")
-            mock_pc.read_chat_history = AsyncMock(return_value=[])
+            mock_pc.read_chat_history = AsyncMock(return_value=voice_history)
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_gen.return_value = "Всё отлично!"
@@ -490,14 +506,7 @@ class TestOnPyrogramMessage:
         mock_pc.transcribe_voice.assert_called_once_with(123, 456, 42)
         mock_gen.assert_called_once()
         history_arg = mock_gen.await_args.args[0]
-        assert history_arg == [{
-            "role": "other",
-            "text": "Привет, как дела?",
-            "date": "2026-03-15T10:00:00Z",
-            "name": "Test",
-            "last_name": "User",
-            "username": "testuser",
-        }]
+        assert history_arg == voice_history
 
     @pytest.mark.asyncio
     async def test_outgoing_returns_early(self):
@@ -752,10 +761,10 @@ class TestHandle2FAPassword:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        with patch("handlers.pyrogram_handlers.GetPassword", return_value="get-password"), \
-             patch("handlers.pyrogram_handlers.CheckPassword", side_effect=lambda password: ("check-password", password)), \
-             patch("handlers.pyrogram_handlers.compute_password_check", return_value="srp-check"), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Wrong password"):
+        with patch("handlers.connect_handler.GetPassword", return_value="get-password"), \
+             patch("handlers.connect_handler.CheckPassword", side_effect=lambda password: ("check-password", password)), \
+             patch("handlers.connect_handler.compute_password_check", return_value="srp-check"), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Wrong password"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_2fa_password(mock_update, mock_context)
 
@@ -787,12 +796,12 @@ class TestHandle2FAPassword:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        with patch("handlers.pyrogram_handlers.GetPassword", return_value="get-password"), \
-             patch("handlers.pyrogram_handlers.CheckPassword", side_effect=lambda password: ("check-password", password)), \
-             patch("handlers.pyrogram_handlers.compute_password_check", return_value="srp-check"), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+        with patch("handlers.connect_handler.GetPassword", return_value="get-password"), \
+             patch("handlers.connect_handler.CheckPassword", side_effect=lambda password: ("check-password", password)), \
+             patch("handlers.connect_handler.compute_password_check", return_value="srp-check"), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             with pytest.raises(ApplicationHandlerStop):
@@ -1052,10 +1061,10 @@ class TestConnectPhoneFlow:
     @pytest.mark.asyncio
     async def test_connect_sends_phone_prompt_with_qr_button(self, mock_update, mock_context):
         """`/connect` отправляет сообщение с кнопкой QR."""
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -1085,11 +1094,11 @@ class TestConnectPhoneFlow:
             "expires_at": 1,
         }
 
-        with patch("handlers.pyrogram_handlers.time.monotonic", return_value=2), \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
+        with patch("handlers.connect_handler.time.monotonic", return_value=2), \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.upsert_effective_user", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter phone"):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -1111,7 +1120,7 @@ class TestConnectPhoneFlow:
         mock_update.message.text = "+1234567890"
         mock_update.message.message_id = 42
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1132,7 +1141,7 @@ class TestConnectPhoneFlow:
         mock_update.message.text = "invalid"
         mock_update.message.message_id = 55
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Invalid phone"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Invalid phone"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1171,9 +1180,9 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "12345"
 
-        with patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+        with patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             with pytest.raises(ApplicationHandlerStop):
@@ -1211,9 +1220,9 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = masked_code
 
-        with patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True), \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+        with patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True), \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             with pytest.raises(ApplicationHandlerStop):
@@ -1248,7 +1257,7 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "9x9x9x9x9"
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Invalid code"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Invalid code"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1280,7 +1289,7 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "99999"
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock) as mock_msg:
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock) as mock_msg:
             mock_msg.side_effect = lambda lang, key: f"[{key}]"
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
@@ -1318,7 +1327,7 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "1x2345"
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Code expired"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Code expired"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1349,7 +1358,7 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "12345"
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Enter 2FA"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Enter 2FA"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1385,12 +1394,12 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "password123"
 
-        with patch("handlers.pyrogram_handlers.GetPassword", return_value="get-password"), \
-             patch("handlers.pyrogram_handlers.CheckPassword", side_effect=lambda password: ("check-password", password)), \
-             patch("handlers.pyrogram_handlers.compute_password_check", return_value="srp-check"), \
-             patch("handlers.pyrogram_handlers.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
-             patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Connected"):
+        with patch("handlers.connect_handler.GetPassword", return_value="get-password"), \
+             patch("handlers.connect_handler.CheckPassword", side_effect=lambda password: ("check-password", password)), \
+             patch("handlers.connect_handler.compute_password_check", return_value="srp-check"), \
+             patch("handlers.connect_handler.save_session", new_callable=AsyncMock, return_value=True) as mock_save, \
+             patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
             with pytest.raises(ApplicationHandlerStop):
@@ -1421,10 +1430,10 @@ class TestConnectPhoneFlow:
 
         mock_update.message.text = "wrongpassword"
 
-        with patch("handlers.pyrogram_handlers.GetPassword", return_value="get-password"), \
-             patch("handlers.pyrogram_handlers.CheckPassword", side_effect=lambda password: ("check-password", password)), \
-             patch("handlers.pyrogram_handlers.compute_password_check", return_value="srp-check"), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Wrong password"):
+        with patch("handlers.connect_handler.GetPassword", return_value="get-password"), \
+             patch("handlers.connect_handler.CheckPassword", side_effect=lambda password: ("check-password", password)), \
+             patch("handlers.connect_handler.compute_password_check", return_value="srp-check"), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Wrong password"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1448,9 +1457,9 @@ class TestConnectPhoneFlow:
         query.edit_message_text = AsyncMock()
         mock_update.callback_query = query
 
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers._start_qr_flow", new_callable=AsyncMock) as mock_qr:
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler._start_qr_flow", new_callable=AsyncMock) as mock_qr:
             mock_pc.is_active.return_value = False
 
             await on_connect_qr_callback(mock_update, mock_context)
@@ -1492,9 +1501,9 @@ class TestConnectPhoneFlow:
             "chat_id": mock_update.effective_chat.id,
         }
 
-        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
-             patch("handlers.pyrogram_handlers._get_qr_login_task", return_value=None), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="In progress"):
+        with patch("handlers.connect_handler.pyrogram_client") as mock_pc, \
+             patch("handlers.connect_handler._get_qr_login_task", return_value=None), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="In progress"):
             mock_pc.is_active.return_value = False
 
             await on_connect(mock_update, mock_context)
@@ -1515,7 +1524,7 @@ class TestConnectPhoneFlow:
         mock_update.message.text = "+1234567890"
         mock_update.message.message_id = 77
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1534,7 +1543,7 @@ class TestConnectPhoneFlow:
         mock_update.message.text = "+1234567890"
         mock_update.message.message_id = 42
 
-        with patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
+        with patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Confirm {phone_number}"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 
@@ -1559,8 +1568,8 @@ class TestConnectPhoneFlow:
         }
         mock_update.message.text = "12345"
 
-        with patch("handlers.pyrogram_handlers.time.monotonic", return_value=2), \
-             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
+        with patch("handlers.connect_handler.time.monotonic", return_value=2), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Timed out"):
             with pytest.raises(ApplicationHandlerStop):
                 await handle_connect_text(mock_update, mock_context)
 

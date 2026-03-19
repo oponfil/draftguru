@@ -8,7 +8,7 @@ from pyrogram import Client, filters, raw
 import pyrogram
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
-from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
+from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
 from utils.utils import get_timestamp
 
 
@@ -204,6 +204,9 @@ def is_active(user_id: int) -> bool:
 async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> list[dict]:
     """Читает последние сообщения из чата пользователя.
 
+    Голосовые сообщения транскрибируются параллельно через transcribe_voice().
+    Если транскрипция не удалась — подставляется '[voice message]'.
+
     Args:
         user_id: Telegram user ID
         chat_id: ID чата для чтения
@@ -217,13 +220,20 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
         return []
 
     messages = []
+    # Индексы сообщений с голосовыми, для которых нужна транскрипция
+    voice_indices: list[int] = []
+    voice_msg_ids: list[int] = []
+
     try:
         async for msg in client.get_chat_history(chat_id, limit=limit):
             text = msg.text
             # Стикер → эмодзи как текстовое представление
             if not text and msg.sticker:
                 text = msg.sticker.emoji or STICKER_FALLBACK_EMOJI
-            if not text:
+            # Голосовое сообщение → отложим транскрипцию
+            if not text and msg.voice:
+                text = None  # placeholder, заполним после транскрипции
+            if not text and not msg.voice:
                 continue
 
             role = "user" if msg.from_user and msg.from_user.id == user_id else "other"
@@ -234,6 +244,8 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
             date = msg.date
             if isinstance(date, datetime):
                 date = date.astimezone(timezone.utc)
+
+            idx = len(messages)
             messages.append({
                 "role": role,
                 "text": text,
@@ -243,8 +255,33 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
                 "username": sender.username if sender else None,
             })
 
+            if msg.voice and text is None:
+                voice_indices.append(idx)
+                voice_msg_ids.append(msg.id)
+
+        # Транскрибируем все голосовые параллельно
+        if voice_indices:
+            transcriptions = await asyncio.gather(
+                *(transcribe_voice(user_id, chat_id, mid) for mid in voice_msg_ids),
+            )
+            for idx, transcription in zip(voice_indices, transcriptions):
+                messages[idx]["text"] = transcription or "[voice message]"
+
+            if DEBUG_PRINT:
+                ok_count = sum(1 for t in transcriptions if t)
+                print(
+                    f"{get_timestamp()} [PYROGRAM] Transcribed {ok_count}/{len(voice_indices)} "
+                    f"voice messages in chat {chat_id}"
+                )
+
         # Переворачиваем — от старых к новым
         messages.reverse()
+
+        # Обрезаем по суммарной длине текста (убираем старые сообщения)
+        total_chars = sum(len(m["text"] or "") for m in messages)
+        while messages and total_chars > MAX_CONTEXT_CHARS:
+            removed = messages.pop(0)
+            total_chars -= len(removed["text"] or "")
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [PYROGRAM] Read {len(messages)} messages from chat {chat_id}")
@@ -526,9 +563,17 @@ async def send_message(user_id: int, chat_id: int, text: str) -> bool:
         print(f"{get_timestamp()} [PYROGRAM] ERROR sending message in chat {chat_id}: {e}")
         return False
 
+# Кэш транскрипций: {user_id: {(chat_id, msg_id): text_or_None}}
+# Предотвращает повторные API-вызовы для одних и тех же голосовых.
+_transcription_cache: dict[int, dict[tuple[int, int], str | None]] = defaultdict(dict)
+_TRANSCRIPTION_CACHE_MAX = 200  # Макс. записей на пользователя
+
 
 async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | None:
     """Транскрибирует голосовое сообщение через Telegram Premium TranscribeAudio.
+
+    Результат кэшируется — повторные вызовы для того же сообщения
+    не обращаются к Telegram API.
 
     Args:
         user_id: Telegram user ID
@@ -538,9 +583,17 @@ async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | Non
     Returns:
         Текст транскрипции или None при ошибке
     """
+    # Проверяем кэш
+    cache_key = (chat_id, msg_id)
+    user_cache = _transcription_cache[user_id]
+    if cache_key in user_cache:
+        return user_cache[cache_key]
+
     client = _active_clients.get(user_id)
     if not client:
         return None
+
+    result_text: str | None = None
 
     try:
         peer = await client.resolve_peer(chat_id)
@@ -555,35 +608,33 @@ async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | Non
         if not result.pending:
             if DEBUG_PRINT:
                 print(f"{get_timestamp()} [PYROGRAM] Transcribed voice in chat {chat_id}: {len(result.text)} chars")
-            return result.text or None
+            result_text = result.text or None
+        else:
+            # Ждём UpdateTranscribedAudio через polling
+            final_text = result.text or ""
 
-        # Ждём UpdateTranscribedAudio через polling
-        final_text = result.text or ""
-
-        deadline = asyncio.get_event_loop().time() + VOICE_TRANSCRIPTION_TIMEOUT
-        while asyncio.get_event_loop().time() < deadline:
-            await asyncio.sleep(1)
-            # Повторяем запрос — Telegram вернёт обновлённый результат
-            try:
-                result = await client.invoke(
-                    raw.functions.messages.TranscribeAudio(
-                        peer=peer,
-                        msg_id=msg_id,
+            deadline = asyncio.get_event_loop().time() + VOICE_TRANSCRIPTION_TIMEOUT
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(1)
+                # Повторяем запрос — Telegram вернёт обновлённый результат
+                try:
+                    result = await client.invoke(
+                        raw.functions.messages.TranscribeAudio(
+                            peer=peer,
+                            msg_id=msg_id,
+                        )
                     )
-                )
-                if not result.pending:
-                    final_text = result.text or ""
+                    if not result.pending:
+                        final_text = result.text or ""
+                        break
+                    final_text = result.text or final_text
+                except Exception:
                     break
-                final_text = result.text or final_text
-            except Exception:
-                break
 
-        if final_text:
-            if DEBUG_PRINT:
-                print(f"{get_timestamp()} [PYROGRAM] Transcribed voice in chat {chat_id}: {len(final_text)} chars")
-            return final_text
-
-        return None
+            if final_text:
+                if DEBUG_PRINT:
+                    print(f"{get_timestamp()} [PYROGRAM] Transcribed voice in chat {chat_id}: {len(final_text)} chars")
+                result_text = final_text
 
     except Exception as e:
         error_str = str(e)
@@ -591,4 +642,12 @@ async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | Non
             print(f"{get_timestamp()} [PYROGRAM] WARNING: voice transcription requires Premium in chat {chat_id}")
         else:
             print(f"{get_timestamp()} [PYROGRAM] ERROR transcribing voice in chat {chat_id}: {e}")
-        return None
+
+    # Сохраняем в кэш (включая None для ошибок)
+    user_cache[cache_key] = result_text
+    if len(user_cache) > _TRANSCRIPTION_CACHE_MAX:
+        # Удаляем самую старую запись
+        oldest = next(iter(user_cache))
+        del user_cache[oldest]
+
+    return result_text
