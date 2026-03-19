@@ -95,11 +95,13 @@ By default, `/connect` prompts for a phone number. A button below the message le
 
 ### Per-chat Settings (`/chats`)
 
-The `/chats` command shows only chats where the bot has actually set a draft or replied, as well as chats with custom settings. Each chat has three buttons:
+The `/chats` command shows only chats where the bot has actually set a draft or replied, as well as chats with custom settings. Each chat is shown as a single button with the chat name.
 
-- **Prompt** (`📝`) — tap to open the prompt editor for this chat. Shows the current prompt and lets you set a new one, clear it, or cancel. Per-chat prompt is appended to the global prompt (max 300 chars).
-- **Style** (`🦉 Name`) — tap to cycle through styles
-- **Auto-reply** (`⏰`) — tap to cycle through auto-reply timers for this chat. The last option in the cycle is **🔇 Ignore** — fully disables drafts, auto-replies, and message polling for that chat.
+Tapping a chat opens a **new message** with three vertical buttons:
+
+- **Style** (`🦉 Style: Userlike`) — tap to cycle through styles
+- **Prompt** (`📝 Prompt: ✅ ON`) — tap to open the prompt editor for this chat. Shows the current prompt and lets you set a new one, clear it, or cancel. Per-chat prompt is appended to the global prompt (max 300 chars).
+- **Auto-reply** (`⏰ Auto-reply: ✅ OFF`) — tap to cycle through auto-reply timers for this chat. The second option in the cycle is **🔇 Ignore** — fully disables drafts, auto-replies, and message polling for that chat.
 
 Per-chat settings override the global ones from `/settings`. If a per-chat value matches the global one, the override is automatically cleared. Available only to connected users.
 

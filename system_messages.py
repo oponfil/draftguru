@@ -100,7 +100,7 @@ SYSTEM_MESSAGES = {
     "settings_prompt_current": f"📝 Global prompt (all chats):\n«{{prompt}}»\n\nSend a new prompt to replace it (Max length: {USER_PROMPT_MAX_LENGTH} chars):",
     "settings_prompt_no_prompt": f"📝 Global prompt (all chats): not set.\n\nSend a prompt to set it (Max length: {USER_PROMPT_MAX_LENGTH} chars):",
     # — Auto-reply labels (base, without prefix) —
-    "auto_reply_prefix": "Auto-reply",
+    "auto_reply_prefix": "⏰ Auto-reply:",
     "auto_reply_off": "✅ OFF",
     "auto_reply_1m": "⚠️ 1 min",
     "auto_reply_5m": "⚠️ 5 min",
@@ -118,10 +118,9 @@ SYSTEM_MESSAGES = {
 
     # — Chats (per-chat settings) —
     "menu_chats": "Chat settings",
-    "chats_title": "🎭 Chats\nTap to change prompt, style, or auto-reply timer.",
+    "chats_title": "🎭 Chats",
+    "chats_chat_title": "⚙️ {chat_name}",
     "chats_no_chats": "No active chats found. Start a conversation first.",
-    "chats_prompt_set": "📝✅",
-    "chats_prompt_empty": "📝",
 
 
     # — Chats: per-chat prompt —

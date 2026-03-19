@@ -41,7 +41,8 @@ def _auto_reply_label(seconds: int | None, messages: dict) -> str:
     ar_base = messages.get(ar_key, "")
     if ar_key == "auto_reply_ignore":
         return ar_base or "🔇"
-    return f"⏰: {ar_base}" if ar_base else "⏰"
+    ar_prefix = messages.get("auto_reply_prefix", "⏰ Auto-reply:")
+    return f"{ar_prefix} {ar_base}" if ar_base else "⏰"
 
 
 def _chat_display_name(dialog_info: dict) -> str:
@@ -58,46 +59,60 @@ def _chat_display_name(dialog_info: dict) -> str:
     return name or dialog_info.get("username", "") or "???"
 
 
+def _find_chat_name(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
+    """Ищет имя чата в сохранённых диалогах."""
+    for d in context.user_data.get("chats_dialogs") or []:
+        if d["chat_id"] == chat_id:
+            return _chat_display_name(d)
+    return "???"
+
+
 def _build_styles_keyboard(
     dialogs: list[dict],
-    chat_styles: dict,
+) -> InlineKeyboardMarkup:
+    """Формирует inline-клавиатуру: одна кнопка с именем чата на строку."""
+    keyboard = []
+    for d in dialogs:
+        chat_id = d["chat_id"]
+        name = _chat_display_name(d)
+        btn = InlineKeyboardButton(name, callback_data=f"chatmenu:{chat_id}")
+        keyboard.append([btn])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _build_chat_settings_keyboard(
+    chat_id: int,
     user_settings: dict,
     messages: dict,
     global_style: str | None = None,
 ) -> InlineKeyboardMarkup:
-    """Формирует inline-клавиатуру со списком чатов: стиль + автоответ + промпт."""
+    """Формирует inline-клавиатуру настроек чата: стиль + промпт + автоответ в столбец."""
+    chat_styles = user_settings.get("chat_styles") or {}
     chat_prompts = user_settings.get("chat_prompts") or {}
-    keyboard = []
-    for d in dialogs:
-        chat_id = d["chat_id"]
-        # Стиль
-        style = chat_styles.get(str(chat_id))
-        if style is None:
-            style = global_style
-        emoji = _style_emoji(style)
-        name = _chat_display_name(d)
 
-        # Автоответ
-        auto_reply = get_effective_auto_reply(user_settings, chat_id)
-        ar_label = _auto_reply_label(auto_reply, messages)
+    # Стиль
+    style = chat_styles.get(str(chat_id))
+    if style is None:
+        style = global_style or DEFAULT_STYLE
+    style_msg_key = STYLE_OPTIONS.get(style, "settings_style_userlike")
+    style_label = messages.get(style_msg_key, f"{_style_emoji(style)} Style: {style}")
 
-        # Per-chat промпт
-        has_prompt = bool(chat_prompts.get(str(chat_id)))
-        prompt_label = messages.get(
-            "chats_prompt_set" if has_prompt else "chats_prompt_empty",
-            "📝",
-        )
+    # Промпт
+    has_prompt = bool(chat_prompts.get(str(chat_id)))
+    prompt_label = messages.get(
+        "settings_prompt_set" if has_prompt else "settings_prompt_empty",
+        "📝",
+    )
 
-        style_btn = InlineKeyboardButton(
-            f"{emoji} {name}", callback_data=f"chats:{chat_id}",
-        )
-        ar_btn = InlineKeyboardButton(
-            ar_label or "⏰", callback_data=f"autoreply:{chat_id}",
-        )
-        prompt_btn = InlineKeyboardButton(
-            prompt_label, callback_data=f"chatprompt:{chat_id}",
-        )
-        keyboard.append([prompt_btn, style_btn, ar_btn])
+    # Автоответ
+    auto_reply = get_effective_auto_reply(user_settings, chat_id)
+    ar_label = _auto_reply_label(auto_reply, messages)
+
+    keyboard = [
+        [InlineKeyboardButton(style_label, callback_data=f"chats:{chat_id}")],
+        [InlineKeyboardButton(prompt_label, callback_data=f"chatprompt:{chat_id}")],
+        [InlineKeyboardButton(ar_label, callback_data=f"autoreply:{chat_id}")],
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -134,7 +149,6 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Читаем настройки
     user = await get_user(u.id)
     user_settings = (user or {}).get("settings") or {}
-    chat_styles = user_settings.get("chat_styles") or {}
 
     # Получаем широкий список диалогов для фильтрации
     all_dialogs = await pyrogram_client.get_dialog_info(
@@ -153,35 +167,57 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     messages = await get_system_messages(u.language_code)
     title = messages.get("chats_title", "🎭 Chats")
-    global_style = user_settings.get("style")
-    keyboard = _build_styles_keyboard(dialogs, chat_styles, user_settings, messages, global_style)
+    keyboard = _build_styles_keyboard(dialogs)
     await update.message.reply_text(title, reply_markup=keyboard)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /chats from user {u.id}, {len(dialogs)} chats")
 
 
-async def _refresh_keyboard(
-    query, u, context, updated_settings: dict,
+async def _refresh_chat_settings(
+    query: object, u: object, context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int, updated_settings: dict,
 ) -> None:
-    """Обновляет клавиатуру /chats после изменения настроек."""
-    dialogs = context.user_data.get("chats_dialogs") or []
-    if not dialogs:
-        all_dialogs = await pyrogram_client.get_dialog_info(
-            u.id, limit=CHATS_FETCH_LIMIT,
-        )
-        dialogs = _get_relevant_dialogs(all_dialogs, updated_settings, u.id)
-    else:
-        dialogs = _get_relevant_dialogs(dialogs, updated_settings, u.id)
-
-    context.user_data["chats_dialogs"] = dialogs
-
-    chat_styles = updated_settings.get("chat_styles") or {}
-    global_style = updated_settings.get("style")
+    """Обновляет клавиатуру настроек конкретного чата (Level 2 сообщение)."""
     messages = await get_system_messages(u.language_code)
-    keyboard = _build_styles_keyboard(dialogs, chat_styles, updated_settings, messages, global_style)
-    title = messages.get("chats_title", "🎭 Chats")
+    global_style = updated_settings.get("style")
+    keyboard = _build_chat_settings_keyboard(chat_id, updated_settings, messages, global_style)
+
+    chat_name = _find_chat_name(context, chat_id)
+    title = messages.get("chats_chat_title", "⚙️ {chat_name}").format(chat_name=chat_name)
     await query.edit_message_text(text=title, reply_markup=keyboard)
+
+
+@serialize_user_updates
+async def on_chat_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик нажатия на чат — отправляет новое сообщение с настройками чата."""
+    query = update.callback_query
+    u = update.effective_user
+    await query.answer()
+    await clear_pending_input(context, u.id, context.bot)
+
+    # Извлекаем chat_id из callback_data "chatmenu:123456"
+    try:
+        chat_id = int(query.data.split(":")[1])
+    except (IndexError, ValueError):
+        return
+
+    # Читаем текущие настройки
+    user = await get_user(u.id)
+    user_settings = (user or {}).get("settings") or {}
+
+    messages = await get_system_messages(u.language_code)
+    global_style = user_settings.get("style")
+    keyboard = _build_chat_settings_keyboard(chat_id, user_settings, messages, global_style)
+
+    chat_name = _find_chat_name(context, chat_id)
+    title = messages.get("chats_chat_title", "⚙️ {chat_name}").format(chat_name=chat_name)
+    await context.bot.send_message(
+        chat_id=query.message.chat_id, text=title, reply_markup=keyboard,
+    )
+
+    if DEBUG_PRINT:
+        print(f"{get_timestamp()} [BOT] Chat menu opened for chat {chat_id} by user {u.id}")
 
 
 @serialize_user_updates
@@ -223,7 +259,7 @@ async def on_chats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text(text=error_msg)
         return
 
-    await _refresh_keyboard(query, u, context, updated_settings)
+    await _refresh_chat_settings(query, u, context, chat_id, updated_settings)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Style for chat {chat_id} changed to {next_value!r} by user {u.id}")
@@ -274,7 +310,7 @@ async def on_auto_reply_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text=error_msg)
         return
 
-    await _refresh_keyboard(query, u, context, updated_settings)
+    await _refresh_chat_settings(query, u, context, chat_id, updated_settings)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Auto-reply for chat {chat_id} changed to {next_value!r} by user {u.id}")
@@ -299,13 +335,7 @@ async def on_chat_prompt_callback(update: Update, context: ContextTypes.DEFAULT_
     chat_prompts = user_settings.get("chat_prompts") or {}
     current_prompt = chat_prompts.get(str(chat_id), "")
 
-    # Имя чата из сохранённых диалогов
-    dialogs = context.user_data.get("chats_dialogs") or []
-    chat_name = "???"
-    for d in dialogs:
-        if d["chat_id"] == chat_id:
-            chat_name = _chat_display_name(d)
-            break
+    chat_name = _find_chat_name(context, chat_id)
 
     messages = await get_system_messages(u.language_code)
     if current_prompt:
@@ -327,21 +357,27 @@ async def on_chat_prompt_callback(update: Update, context: ContextTypes.DEFAULT_
 
 @serialize_user_updates
 async def on_chat_prompt_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отмена редактирования per-chat промпта — возврат к списку чатов."""
+    """Отмена редактирования per-chat промпта — возврат к настройкам чата."""
     query = update.callback_query
     u = update.effective_user
     await query.answer()
 
     await clear_pending_input(context, u.id, context.bot)
 
+    # Извлекаем chat_id из callback_data "chatprompt_cancel:123456"
+    try:
+        chat_id = int(query.data.split(":")[1])
+    except (IndexError, ValueError):
+        return
+
     user = await get_user(u.id)
     user_settings = (user or {}).get("settings") or {}
-    await _refresh_keyboard(query, u, context, user_settings)
+    await _refresh_chat_settings(query, u, context, chat_id, user_settings)
 
 
 @serialize_user_updates
 async def on_chat_prompt_clear_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Очистка per-chat промпта и возврат к списку чатов."""
+    """Очистка per-chat промпта и возврат к настройкам чата."""
     query = update.callback_query
     u = update.effective_user
     await query.answer()
@@ -359,8 +395,7 @@ async def on_chat_prompt_clear_callback(update: Update, context: ContextTypes.DE
         await query.edit_message_text(text=error_msg)
         return
 
-    await _refresh_keyboard(query, u, context, updated_settings)
+    await _refresh_chat_settings(query, u, context, chat_id, updated_settings)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Chat prompt cleared for chat {chat_id} by user {u.id}")
-

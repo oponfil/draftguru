@@ -109,12 +109,12 @@ STICKER_FALLBACK_EMOJI = "□"  # Fallback для стикеров без при
 CHAT_IGNORED_SENTINEL = -1  # Sentinel: чат полностью игнорируется (нет черновиков и автоответа)
 AUTO_REPLY_OPTIONS: dict[int | None, str] = {
     None: "auto_reply_off",
+    CHAT_IGNORED_SENTINEL: "auto_reply_ignore",
     60: "auto_reply_1m",
     300: "auto_reply_5m",
     900: "auto_reply_15m",
     3600: "auto_reply_1h",
     57600: "auto_reply_16h",
-    CHAT_IGNORED_SENTINEL: "auto_reply_ignore",
 }
 
 # Чаты, полностью игнорируемые ботом (не генерируются черновики и автоответы).

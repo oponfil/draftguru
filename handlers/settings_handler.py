@@ -58,8 +58,8 @@ def _build_settings_keyboard(settings: dict, messages: dict) -> InlineKeyboardMa
     if ar_key == "auto_reply_ignore":
         auto_label = ar_base
     else:
-        ar_prefix = messages.get("auto_reply_prefix", "Auto-reply")
-        auto_label = f"⏰ {ar_prefix}: {ar_base}"
+        ar_prefix = messages.get("auto_reply_prefix", "⏰ Auto-reply:")
+        auto_label = f"{ar_prefix} {ar_base}"
     style_label = messages.get(STYLE_OPTIONS.get(settings.get("style"), "settings_style_userlike"))
 
     tz_offset = settings.get("tz_offset", 0) or 0
@@ -106,12 +106,8 @@ async def on_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     messages = await get_system_messages(u.language_code)
 
-    # Добавляем превью промпта к заголовку
-    custom_prompt = settings.get("custom_prompt", "")
-    text = f"{title}\n\n📝 «{custom_prompt}»" if custom_prompt else title
-
     keyboard = _build_settings_keyboard(settings, messages)
-    await update.message.reply_text(text, reply_markup=keyboard)
+    await update.message.reply_text(title, reply_markup=keyboard)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /settings from user {u.id}")
@@ -240,10 +236,7 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = _build_settings_keyboard(updated_settings, messages)
     title = messages.get("settings_title", "⚙️ Settings")
 
-    custom_prompt = updated_settings.get("custom_prompt", "")
-    text = f"{title}\n\n📝 «{custom_prompt}»" if custom_prompt else title
-
-    await query.edit_message_text(text=text, reply_markup=keyboard)
+    await query.edit_message_text(text=title, reply_markup=keyboard)
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Settings updated by user {u.id}: {action}")

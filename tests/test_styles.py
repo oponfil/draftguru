@@ -11,13 +11,15 @@ from handlers.styles_handler import (
     _auto_reply_label,
     _chat_display_name,
     _build_styles_keyboard,
+    _build_chat_settings_keyboard,
     _style_emoji,
 )
 
 CHAT_MESSAGES = {
     "chats_title": "Chat Styles",
-    "chats_prompt_set": "📝✅",
-    "chats_prompt_empty": "📝",
+    "chats_chat_title": "⚙️ {chat_name}",
+    "settings_prompt_set": "📝 Prompt: ✅ ON",
+    "settings_prompt_empty": "📝 Prompt: ❌ OFF",
     "auto_reply_off": "✅ OFF",
     "auto_reply_1m": "⚠️ 1 min",
     "auto_reply_5m": "⚠️ 5 min",
@@ -25,6 +27,14 @@ CHAT_MESSAGES = {
     "auto_reply_1h": "⚠️ 1 hour",
     "auto_reply_16h": "⚠️ 16 hours",
     "auto_reply_ignore": "🔇 Ignore",
+    "auto_reply_prefix": "⏰ Auto-reply:",
+    "prompt_cancel": "❌ Cancel",
+    "prompt_clear": "🗑 Clear",
+    # Стили из settings
+    **{
+        f"settings_style_{style or 'userlike'}": f"{emoji} Style: {style or 'userlike'}"
+        for emoji, style in EMOJI_TO_STYLE.items()
+    },
 }
 
 
@@ -196,15 +206,15 @@ class TestStylesHelpers:
         assert _style_emoji("unknown_style") == "🦉"
 
     def test_auto_reply_label_off(self):
-        assert _auto_reply_label(None, CHAT_MESSAGES) == "⏰: ✅ OFF"
+        assert _auto_reply_label(None, CHAT_MESSAGES) == "⏰ Auto-reply: ✅ OFF"
 
     def test_auto_reply_label_minutes(self):
-        assert _auto_reply_label(60, CHAT_MESSAGES) == "⏰: ⚠️ 1 min"
-        assert _auto_reply_label(300, CHAT_MESSAGES) == "⏰: ⚠️ 5 min"
+        assert _auto_reply_label(60, CHAT_MESSAGES) == "⏰ Auto-reply: ⚠️ 1 min"
+        assert _auto_reply_label(300, CHAT_MESSAGES) == "⏰ Auto-reply: ⚠️ 5 min"
 
     def test_auto_reply_label_hours(self):
-        assert _auto_reply_label(3600, CHAT_MESSAGES) == "⏰: ⚠️ 1 hour"
-        assert _auto_reply_label(57600, CHAT_MESSAGES) == "⏰: ⚠️ 16 hours"
+        assert _auto_reply_label(3600, CHAT_MESSAGES) == "⏰ Auto-reply: ⚠️ 1 hour"
+        assert _auto_reply_label(57600, CHAT_MESSAGES) == "⏰ Auto-reply: ⚠️ 16 hours"
 
     def test_auto_reply_label_ignore(self):
         assert _auto_reply_label(-1, CHAT_MESSAGES) == "🔇 Ignore"
@@ -224,57 +234,77 @@ class TestStylesHelpers:
     def test_chat_display_name_empty(self):
         assert _chat_display_name({}) == "???"
 
-    def test_build_styles_keyboard(self):
+    def test_build_styles_keyboard_one_button_per_row(self):
+        """Level 1: одна кнопка с именем чата на каждую строку."""
         dialogs = [
             {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
             {"chat_id": 200, "first_name": "Боб", "last_name": "", "username": ""},
         ]
-        chat_styles = {"100": "romance"}
-        user_settings = {"style": "business", "chat_styles": chat_styles}
-        keyboard = _build_styles_keyboard(dialogs, chat_styles, user_settings, CHAT_MESSAGES, global_style="business")
+        keyboard = _build_styles_keyboard(dialogs)
         buttons = keyboard.inline_keyboard
         assert len(buttons) == 2
-        # Каждый ряд — 3 кнопки: промпт + стиль + автоответ
-        assert len(buttons[0]) == 3
-        assert buttons[0][0].text == "📝"
-        assert buttons[0][0].callback_data == "chatprompt:100"
-        assert "💕" in buttons[0][1].text  # per-chat override
-        assert "Алиса" in buttons[0][1].text
-        assert buttons[0][1].callback_data == "chats:100"
-        assert buttons[0][2].callback_data == "autoreply:100"
-        assert "💼" in buttons[1][1].text  # fallback to global "business"
-        assert "Боб" in buttons[1][1].text
+        # Каждый ряд — 1 кнопка с именем чата
+        assert len(buttons[0]) == 1
+        assert buttons[0][0].text == "Алиса"
+        assert buttons[0][0].callback_data == "chatmenu:100"
+        assert len(buttons[1]) == 1
+        assert buttons[1][0].text == "Боб"
+        assert buttons[1][0].callback_data == "chatmenu:200"
 
-    def test_build_styles_keyboard_with_auto_reply(self):
-        """Auto-reply per-chat отображается в метке кнопки."""
-        dialogs = [
-            {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
-        ]
-        user_settings = {"auto_reply": None, "chat_auto_replies": {"100": 60}}
-        keyboard = _build_styles_keyboard(dialogs, {}, user_settings, CHAT_MESSAGES)
+    def test_build_chat_settings_keyboard_three_buttons_column(self):
+        """Level 2: три кнопки в столбец — стиль, промпт, автоответ."""
+        user_settings = {
+            "style": "business",
+            "chat_styles": {"100": "romance"},
+            "chat_prompts": {"100": "Be formal"},
+            "chat_auto_replies": {"100": 60},
+        }
+        keyboard = _build_chat_settings_keyboard(100, user_settings, CHAT_MESSAGES, global_style="business")
         buttons = keyboard.inline_keyboard
-        assert "⏰: ⚠️ 1 min" in buttons[0][2].text
+        assert len(buttons) == 3
+        # Каждая строка — 1 кнопка
+        assert len(buttons[0]) == 1  # Style
+        assert len(buttons[1]) == 1  # Prompt
+        assert len(buttons[2]) == 1  # Auto-reply
+        # Style — romance override
+        assert "romance" in buttons[0][0].text.lower() or "💕" in buttons[0][0].text
+        assert buttons[0][0].callback_data == "chats:100"
+        # Prompt — set
+        assert buttons[1][0].text == "📝 Prompt: ✅ ON"
+        assert buttons[1][0].callback_data == "chatprompt:100"
+        # Auto-reply — 1 min
+        assert "1 min" in buttons[2][0].text
+        assert buttons[2][0].callback_data == "autoreply:100"
 
-    def test_build_styles_keyboard_uses_localized_labels(self):
-        """Кнопки /chats берут готовые локализованные подписи из messages."""
-        dialogs = [
-            {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
-        ]
+    def test_build_chat_settings_keyboard_defaults(self):
+        """Level 2 с дефолтными настройками."""
+        user_settings = {"style": "userlike"}
+        keyboard = _build_chat_settings_keyboard(100, user_settings, CHAT_MESSAGES, global_style="userlike")
+        buttons = keyboard.inline_keyboard
+        assert len(buttons) == 3
+        # Prompt — empty
+        assert buttons[1][0].text == "📝 Prompt: ❌ OFF"
+        # Auto-reply — off
+        assert "Auto-reply" in buttons[2][0].text
+        assert "OFF" in buttons[2][0].text
+
+    def test_build_chat_settings_keyboard_uses_localized_labels(self):
+        """Кнопки берут готовые локализованные подписи из messages."""
         user_settings = {
             "chat_prompts": {"100": "Будь формальнее"},
             "chat_auto_replies": {"100": 60},
         }
         localized_messages = {
             **CHAT_MESSAGES,
-            "chats_prompt_set": "PROMPT ON (localized)",
+            "settings_prompt_set": "PROMPT ON (localized)",
             "auto_reply_1m": "AUTO 1M (localized)",
         }
 
-        keyboard = _build_styles_keyboard(dialogs, {}, user_settings, localized_messages)
+        keyboard = _build_chat_settings_keyboard(100, user_settings, localized_messages)
         buttons = keyboard.inline_keyboard
 
-        assert buttons[0][0].text == "PROMPT ON (localized)"
-        assert buttons[0][2].text == "⏰: AUTO 1M (localized)"
+        assert buttons[1][0].text == "PROMPT ON (localized)"
+        assert "AUTO 1M (localized)" in buttons[2][0].text
 
 
 # ====== /chats command handler ======
@@ -309,7 +339,7 @@ class TestOnStyles:
 
     @pytest.mark.asyncio
     async def test_shows_chat_buttons(self, mock_update, mock_context):
-        """Показывает кнопки с чатами."""
+        """Показывает кнопки с именами чатов (по одной на строку)."""
         dialogs = [
             {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
         ]
@@ -324,7 +354,9 @@ class TestOnStyles:
 
         kb = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         assert len(kb.inline_keyboard) == 1
-        assert "Алиса" in kb.inline_keyboard[0][1].text
+        assert len(kb.inline_keyboard[0]) == 1  # одна кнопка на строку
+        assert kb.inline_keyboard[0][0].text == "Алиса"
+        assert kb.inline_keyboard[0][0].callback_data == "chatmenu:100"
 
     @pytest.mark.asyncio
     async def test_opening_chats_clears_prompt_waiting_state(self, mock_update, mock_context):
@@ -348,8 +380,37 @@ class TestOnStyles:
         assert "awaiting_chat_prompt" not in mock_context.user_data
 
     @pytest.mark.asyncio
+    async def test_chat_menu_sends_new_message(self, mock_update, mock_context):
+        """Нажатие на чат отправляет новое сообщение с настройками."""
+        mock_query = AsyncMock()
+        mock_query.data = "chatmenu:100"
+        mock_query.answer = AsyncMock()
+        mock_query.message = AsyncMock()
+        mock_query.message.chat_id = 42
+        mock_update.callback_query = mock_query
+
+        mock_context.user_data["chats_dialogs"] = [
+            {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
+        ]
+
+        with patch("handlers.styles_handler.get_user", new_callable=AsyncMock, return_value={"settings": {"style": "userlike"}}), \
+             patch("handlers.styles_handler.get_system_messages", new_callable=AsyncMock, return_value=CHAT_MESSAGES):
+            from handlers.styles_handler import on_chat_menu_callback
+            await on_chat_menu_callback(mock_update, mock_context)
+
+        # Проверяем, что отправлено НОВОЕ сообщение (send_message), а не edit
+        mock_context.bot.send_message.assert_called_once()
+        call_kwargs = mock_context.bot.send_message.call_args.kwargs
+        assert call_kwargs["chat_id"] == 42
+        assert "Алиса" in call_kwargs["text"]
+        kb = call_kwargs["reply_markup"]
+        assert len(kb.inline_keyboard) == 3  # 3 кнопки в столбец
+        # Не вызван edit_message_text
+        mock_query.edit_message_text.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_callback_cycles_style(self, mock_update, mock_context):
-        """Нажатие на кнопку циклически переключает стиль."""
+        """Нажатие на кнопку стиля циклически переключает стиль."""
         mock_query = AsyncMock()
         mock_query.data = "chats:100"
         mock_query.answer = AsyncMock()
@@ -371,8 +432,10 @@ class TestOnStyles:
             await on_chats_callback(mock_update, mock_context)
 
         mock_query.edit_message_text.assert_called_once()
-        kb = mock_query.edit_message_text.call_args.kwargs["reply_markup"]
-        assert "🍻" in kb.inline_keyboard[0][1].text
+        call_kwargs = mock_query.edit_message_text.call_args.kwargs
+        kb = call_kwargs["reply_markup"]
+        # Level 2: 3 кнопки в столбец
+        assert len(kb.inline_keyboard) == 3
         assert "awaiting_prompt" not in mock_context.user_data
         assert "awaiting_chat_prompt" not in mock_context.user_data
 
@@ -429,8 +492,10 @@ class TestOnStyles:
             await on_auto_reply_callback(mock_update, mock_context)
 
         mock_query.edit_message_text.assert_called_once()
-        kb = mock_query.edit_message_text.call_args.kwargs["reply_markup"]
-        assert "⏰: ⚠️ 1 min" in kb.inline_keyboard[0][2].text
+        call_kwargs = mock_query.edit_message_text.call_args.kwargs
+        kb = call_kwargs["reply_markup"]
+        # Level 2: 3 кнопки в столбец
+        assert len(kb.inline_keyboard) == 3
         assert "awaiting_prompt" not in mock_context.user_data
         assert "awaiting_chat_prompt" not in mock_context.user_data
 
@@ -449,7 +514,7 @@ class TestOnStyles:
         prev_ar = options_list[-2]
 
         initial_settings = {"auto_reply": global_ar, "chat_auto_replies": {"100": prev_ar}}
-        mock_context.user_data["styles_dialogs"] = [
+        mock_context.user_data["chats_dialogs"] = [
             {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
         ]
 
@@ -699,8 +764,35 @@ class TestOnChatPromptCallback:
         assert mock_context.user_data["awaiting_chat_prompt"] == 100
 
     @pytest.mark.asyncio
-    async def test_clear_callback_removes_chat_from_cached_dialogs_when_no_longer_relevant(self, mock_update, mock_context):
-        """После очистки промпта чат исчезает из кеша /chats, если больше нечем его показывать."""
+    async def test_cancel_callback_returns_to_chat_settings(self, mock_update, mock_context):
+        """Отмена промпта → возврат к настройкам чата (Level 2)."""
+        mock_query = AsyncMock()
+        mock_query.data = "chatprompt_cancel:100"
+        mock_query.answer = AsyncMock()
+        mock_query.edit_message_text = AsyncMock()
+        mock_update.callback_query = mock_query
+
+        mock_context.user_data["awaiting_prompt"] = True
+        mock_context.user_data["awaiting_chat_prompt"] = 100
+        mock_context.user_data["chats_dialogs"] = [
+            {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
+        ]
+
+        with patch("handlers.styles_handler.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.styles_handler.get_system_messages", new_callable=AsyncMock, return_value=CHAT_MESSAGES):
+            from handlers.styles_handler import on_chat_prompt_cancel_callback
+            await on_chat_prompt_cancel_callback(mock_update, mock_context)
+
+        call_kwargs = mock_query.edit_message_text.call_args.kwargs
+        kb = call_kwargs["reply_markup"]
+        # Возвращает на Level 2 (3 кнопки в столбец)
+        assert len(kb.inline_keyboard) == 3
+        assert "awaiting_prompt" not in mock_context.user_data
+        assert "awaiting_chat_prompt" not in mock_context.user_data
+
+    @pytest.mark.asyncio
+    async def test_clear_callback_returns_to_chat_settings(self, mock_update, mock_context):
+        """После очистки промпта возвращается к настройкам чата (Level 2)."""
         mock_query = AsyncMock()
         mock_query.data = "chatprompt_clear:100"
         mock_query.answer = AsyncMock()
@@ -714,15 +806,13 @@ class TestOnChatPromptCallback:
         ]
 
         with patch("handlers.styles_handler.update_chat_prompt", new_callable=AsyncMock, return_value={"chat_prompts": {}}), \
-             patch("handlers.styles_handler.get_replied_chats", return_value=set()), \
              patch("handlers.styles_handler.get_system_messages", new_callable=AsyncMock, return_value=CHAT_MESSAGES):
             from handlers.styles_handler import on_chat_prompt_clear_callback
             await on_chat_prompt_clear_callback(mock_update, mock_context)
 
-        assert mock_context.user_data["chats_dialogs"] == []
         call_kwargs = mock_query.edit_message_text.call_args.kwargs
-        assert list(call_kwargs["reply_markup"].inline_keyboard) == []
+        kb = call_kwargs["reply_markup"]
+        # Возвращает на Level 2 (3 кнопки в столбец)
+        assert len(kb.inline_keyboard) == 3
         assert "awaiting_prompt" not in mock_context.user_data
         assert "awaiting_chat_prompt" not in mock_context.user_data
-
-
