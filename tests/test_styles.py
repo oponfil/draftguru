@@ -235,21 +235,35 @@ class TestStylesHelpers:
         assert _chat_display_name({}) == "???"
 
     def test_build_styles_keyboard_one_button_per_row(self):
-        """Level 1: одна кнопка с именем чата на каждую строку."""
+        """Одна кнопка на строку с emoji-индикаторами настроек."""
         dialogs = [
             {"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""},
             {"chat_id": 200, "first_name": "Боб", "last_name": "", "username": ""},
         ]
-        keyboard = _build_styles_keyboard(dialogs)
+        user_settings = {
+            "style": "userlike",
+            "chat_styles": {"100": "romance"},
+            "chat_prompts": {"100": "Be formal"},
+            "chat_auto_replies": {"100": 60},
+        }
+        keyboard = _build_styles_keyboard(dialogs, user_settings)
         buttons = keyboard.inline_keyboard
         assert len(buttons) == 2
-        # Каждый ряд — 1 кнопка с именем чата
         assert len(buttons[0]) == 1
-        assert buttons[0][0].text == "Алиса"
+        # Алиса: romance + prompt + auto-reply
+        assert buttons[0][0].text == "💕📝⏰ | Алиса"
         assert buttons[0][0].callback_data == "chatmenu:100"
-        assert len(buttons[1]) == 1
-        assert buttons[1][0].text == "Боб"
+        # Боб: дефолтный стиль, без промпта, без auto-reply
+        assert buttons[1][0].text == "🦉 | Боб"
         assert buttons[1][0].callback_data == "chatmenu:200"
+
+    def test_build_styles_keyboard_ignore_indicator(self):
+        """🔇 показывается для ignored чатов."""
+        dialogs = [{"chat_id": 100, "first_name": "Алиса", "last_name": "", "username": ""}]
+        user_settings = {"chat_auto_replies": {"100": -1}}
+        keyboard = _build_styles_keyboard(dialogs, user_settings)
+        assert "🔇" in keyboard.inline_keyboard[0][0].text
+        assert "⏰" not in keyboard.inline_keyboard[0][0].text
 
     def test_build_chat_settings_keyboard_three_buttons_column(self):
         """Level 2: три кнопки в столбец — стиль, промпт, автоответ."""
@@ -355,8 +369,8 @@ class TestOnStyles:
         kb = mock_update.message.reply_text.call_args.kwargs["reply_markup"]
         assert len(kb.inline_keyboard) == 1
         assert len(kb.inline_keyboard[0]) == 1  # одна кнопка на строку
-        assert kb.inline_keyboard[0][0].text == "Алиса"
-        assert kb.inline_keyboard[0][0].callback_data == "chatmenu:100"
+        assert "Алиса" in kb.inline_keyboard[0][0].text
+        assert "chatmenu:100" in kb.inline_keyboard[0][0].callback_data
 
     @pytest.mark.asyncio
     async def test_opening_chats_clears_prompt_waiting_state(self, mock_update, mock_context):

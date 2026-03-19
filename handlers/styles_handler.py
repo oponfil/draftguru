@@ -9,6 +9,7 @@ from clients import pyrogram_client
 from config import (
     AUTO_REPLY_OPTIONS,
     ACTIVE_CHATS_LIMIT,
+    CHAT_IGNORED_SENTINEL,
     CHATS_FETCH_LIMIT,
     DEBUG_PRINT,
     DEFAULT_STYLE,
@@ -69,13 +70,31 @@ def _find_chat_name(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> str:
 
 def _build_styles_keyboard(
     dialogs: list[dict],
+    user_settings: dict,
 ) -> InlineKeyboardMarkup:
-    """Формирует inline-клавиатуру: одна кнопка с именем чата на строку."""
+    """Формирует inline-клавиатуру: одна кнопка с именем чата и иконками настроек."""
+    chat_styles = user_settings.get("chat_styles") or {}
+    chat_prompts = user_settings.get("chat_prompts") or {}
+    global_style = user_settings.get("style") or DEFAULT_STYLE
+
     keyboard = []
     for d in dialogs:
         chat_id = d["chat_id"]
         name = _chat_display_name(d)
-        btn = InlineKeyboardButton(name, callback_data=f"chatmenu:{chat_id}")
+
+        # Emoji-индикаторы
+        style = chat_styles.get(str(chat_id)) or global_style
+        icons = _style_emoji(style)
+        if chat_prompts.get(str(chat_id)):
+            icons += "📝"
+        ar = get_effective_auto_reply(user_settings, chat_id)
+        if ar == CHAT_IGNORED_SENTINEL:
+            icons += "🔇"
+        elif ar is not None:
+            icons += "⏰"
+
+        label = f"{icons} | {name}"
+        btn = InlineKeyboardButton(label, callback_data=f"chatmenu:{chat_id}")
         keyboard.append([btn])
     return InlineKeyboardMarkup(keyboard)
 
@@ -167,7 +186,7 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     messages = await get_system_messages(u.language_code)
     title = messages.get("chats_title", "🎭 Chats")
-    keyboard = _build_styles_keyboard(dialogs)
+    keyboard = _build_styles_keyboard(dialogs, user_settings)
     await update.message.reply_text(title, reply_markup=keyboard)
 
     if DEBUG_PRINT:
