@@ -381,6 +381,27 @@ async def get_last_incoming(user_id: int, chat_id: int) -> "pyrogram.types.Messa
     return None
 
 
+async def get_last_message(user_id: int, chat_id: int) -> "pyrogram.types.Message | None":
+    """Возвращает последнее сообщение в чате (входящее или исходящее).
+
+    В отличие от get_last_incoming, не фильтрует по направлению.
+
+    Returns:
+        pyrogram.types.Message | None
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return None
+
+    try:
+        async for msg in client.get_chat_history(chat_id, limit=1):
+            return msg
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR get_last_message for user {user_id} chat {chat_id}: {e}")
+
+    return None
+
+
 async def _handle_draft_update(user_id: int, update: raw.types.UpdateDraftMessage) -> None:
     """Обрабатывает raw UpdateDraftMessage — извлекает chat_id и текст, вызывает callback."""
     if not _on_draft_callback:

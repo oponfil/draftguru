@@ -88,6 +88,7 @@ DRAFT_PROBE_DELAY = 2  # Секунды ожидания после пробы (
 DRAFT_VERIFY_DELAY = 3  # Секунды до проверки доставки AI-черновика
 POLL_MISSED_INTERVAL = 60  # Интервал проверки пропущенных сообщений (секунды)
 POLL_MISSED_DIALOGS_LIMIT = 10  # Кол-во последних приватных чатов для проверки
+POKE_FOLLOW_UP_TIMEOUT = 43200  # /poke: таймаут follow-up (12 часов)
 
 # ====== TELEGRAM BOT ======
 BOT_READ_TIMEOUT = 30  # Таймаут чтения ответа от Telegram API (секунды)

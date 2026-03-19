@@ -119,7 +119,6 @@ SYSTEM_MESSAGES = {
     # — Chats (per-chat settings) —
     "menu_chats": "Chat settings",
     "chats_title": "🎭 Chats\nTap to change prompt, style, or auto-reply timer.",
-    "chats_not_connected": "🔌 Connect your account first with /connect.",
     "chats_no_chats": "No active chats found. Start a conversation first.",
     "chats_prompt_set": "📝✅",
     "chats_prompt_empty": "📝",
@@ -132,6 +131,10 @@ SYSTEM_MESSAGES = {
     # — Prompt editor buttons —
     "prompt_cancel": "❌ Cancel",
     "prompt_clear": "🗑 Clear",
+
+    # — Poke (/poke) —
+    "poke_scanning": "🔍 Started checking active chats…",
+    "menu_poke": "Poke active chats",
 }
 
 

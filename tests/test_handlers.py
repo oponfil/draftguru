@@ -1058,7 +1058,9 @@ class TestUpdateUserMenu:
             new_callable=AsyncMock,
             return_value={
                 "menu_connect": "Connect",
+                "menu_chats": "Chats",
                 "menu_disconnect": "Disconnect",
+                "menu_poke": "Poke",
                 "menu_status": "Status",
                 "menu_settings": "Settings",
             },
@@ -1068,6 +1070,8 @@ class TestUpdateUserMenu:
         call_args = mock_bot.set_my_commands.call_args
         commands = call_args.args[0]
         command_names = [c.command for c in commands]
+        assert "chats" in command_names
+        assert "poke" in command_names
         assert "disconnect" in command_names
         assert "connect" not in command_names
 

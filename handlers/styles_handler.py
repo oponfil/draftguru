@@ -126,7 +126,7 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Проверяем подключение
     if not pyrogram_client.is_active(u.id):
-        msg = await get_system_message(u.language_code, "chats_not_connected")
+        msg = await get_system_message(u.language_code, "status_disconnected")
         await update.message.reply_text(msg)
         return
 

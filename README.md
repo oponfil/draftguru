@@ -71,11 +71,12 @@ python bot.py
 | `/start` | Welcome message and quick usage guide |
 | `/settings` | Settings: drafts, model (FREE/PRO), prompt, communication style, auto-reply timer, timezone |
 | `/chats` | Per-chat settings: individual style, auto-reply timer, and system prompt for each chat (connected users only) |
+| `/poke` | Scan the 16 most recent private chats and draft replies to unanswered messages and follow-ups (connected users only) |
 | `/status` | Connection status |
 | `/connect` | Connect Telegram account via phone or QR code (supports 2FA) |
 | `/disconnect` | Disconnect account (idempotent: stops listener and clears session in DB) |
 
-The command menu is dynamic: `/connect` and `/disconnect` are shown based on connection status. `/chats` is only visible to connected users. `/start` is not shown in the menu.
+The command menu is dynamic: `/connect` and `/disconnect` are shown based on connection status. `/chats` and `/poke` are only visible to connected users. `/start` is not shown in the menu.
 
 By default, `/connect` prompts for a phone number. A button below the message lets you switch to QR code. For `2FA`, the bot asks for the cloud password in a separate message. Phone number, confirmation code, and password are kept visible during authorization and automatically deleted after successful login or timeout.
 
