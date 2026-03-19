@@ -35,15 +35,22 @@ from system_messages import get_system_message
 from utils.telegram_user import upsert_effective_user
 
 
-# ====== /connect ======
+# --- Состояние connect-flow ---
+# Три отдельных dict'а: QR-flow (фоновый polling + cleanup) и phone-flow (многошаговая
+# state-machine с таймаутами) имеют разную логику и жизненный цикл.
+# _pending_2fa — промежуточная фаза QR-flow: после сканирования QR потребовался 2FA-пароль,
+# polling-задача уже завершилась, но клиент остаётся живым для check_password.
 
-_qr_login_tasks: dict[int, asyncio.Task] = {}
+# QR-flow: фоновая задача polling + ID сообщений для cleanup
+# {user_id: {"task": Task, "sensitive_msg_ids": list[int], "chat_id": int}}
+_qr_login_tasks: dict[int, dict] = {}
 
-# Ожидающие 2FA-пароля: {user_id: {client, language_code, bot, chat_id}}
+# QR-flow, фаза 2FA: клиент ожидает ввода пароля после успешного сканирования QR
+# {user_id: {"client": Client, "language_code": str, "bot": Bot, "chat_id": int}}
 _pending_2fa: dict[int, dict] = {}
 
-# Ожидающие phone-логина: {user_id: {state, client, phone_number, phone_code_hash, expires_at, ...}}
-# state: "awaiting_phone" | "awaiting_code" | "awaiting_2fa"
+# Phone-flow: многошаговая state-machine (ввод номера → подтверждение → код → 2FA)
+# {user_id: {"state": str, "client": Client, ..., "sensitive_msg_ids": list[int], "expires_at": float}}
 _pending_phone: dict[int, dict] = {}
 
 
@@ -124,8 +131,11 @@ async def cancel_pending_phone(
 
 def _get_qr_login_task(user_id: int) -> asyncio.Task | None:
     """Возвращает активную QR-задачу пользователя."""
-    task = _qr_login_tasks.get(user_id)
-    if task and task.done():
+    entry = _qr_login_tasks.get(user_id)
+    if entry is None:
+        return None
+    task = entry["task"]
+    if task.done():
         _qr_login_tasks.pop(user_id, None)
         return None
     return task
@@ -152,13 +162,18 @@ async def clear_pending_input(context: ContextTypes.DEFAULT_TYPE, user_id: int, 
     await cancel_pending_phone(user_id, bot=bot)
 
 
-def _register_qr_login_task(user_id: int, task: asyncio.Task) -> None:
+def _register_qr_login_task(
+    user_id: int, task: asyncio.Task,
+    sensitive_msg_ids: list[int] | None = None, chat_id: int | None = None,
+) -> None:
     """Регистрирует фоновую QR-задачу до её завершения."""
-    _qr_login_tasks[user_id] = task
+    _qr_login_tasks[user_id] = {
+        "task": task, "sensitive_msg_ids": sensitive_msg_ids or [], "chat_id": chat_id,
+    }
 
     def _cleanup(done_task: asyncio.Task) -> None:
-        current_task = _qr_login_tasks.get(user_id)
-        if current_task is done_task:
+        entry = _qr_login_tasks.get(user_id)
+        if entry is not None and entry["task"] is done_task:
             _qr_login_tasks.pop(user_id, None)
 
     task.add_done_callback(_cleanup)
@@ -290,16 +305,20 @@ async def _start_qr_flow(
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(cancel_label, callback_data="connect:cancel")]
         ])
-        await bot.send_photo(chat_id=chat_id, photo=buf, caption=msg, reply_markup=keyboard)
+        qr_sent = await bot.send_photo(chat_id=chat_id, photo=buf, caption=msg, reply_markup=keyboard)
+        sensitive_msg_ids = []
+        qr_mid = getattr(qr_sent, "message_id", None)
+        if qr_mid is not None:
+            sensitive_msg_ids.append(qr_mid)
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [CONNECT_QR] QR sent to user {user_id}, waiting for scan...")
 
         # Запускаем polling в фоне
         task = asyncio.create_task(
-            _poll_qr_login(client, user_id, language_code, bot, chat_id)
+            _poll_qr_login(client, user_id, language_code, bot, chat_id, sensitive_msg_ids=sensitive_msg_ids)
         )
-        _register_qr_login_task(user_id, task)
+        _register_qr_login_task(user_id, task, sensitive_msg_ids=sensitive_msg_ids, chat_id=chat_id)
         client = None
 
     except Exception as e:
@@ -584,7 +603,7 @@ async def on_connect_cancel_callback(update: Update, context: ContextTypes.DEFAU
     u = update.effective_user
     language_code = u.language_code
 
-    # Отменяем QR-flow
+    # Отменяем QR-flow; cleanup выполнит сама фоновая задача в finally
     qr_task = _get_qr_login_task(u.id)
     if qr_task is not None:
         qr_task.cancel()
@@ -779,7 +798,10 @@ async def _finalize_phone_login(
             await _delete_sensitive_messages(bot, chat_id, sensitive_msg_ids)
 
 
-async def _poll_qr_login(client: Client, user_id: int, language_code: str, bot: Bot, chat_id: int) -> None:
+async def _poll_qr_login(
+    client: Client, user_id: int, language_code: str, bot: Bot, chat_id: int,
+    sensitive_msg_ids: list[int] | None = None,
+) -> None:
     """Фоновая задача: ожидает сканирования QR-кода (до 2 минут)."""
     try:
         authorized = False
@@ -910,6 +932,9 @@ async def _poll_qr_login(client: Client, user_id: int, language_code: str, bot: 
         # Не отключаем клиент, если он передан в _pending_2fa (ожидает 2FA-пароль)
         if user_id not in _pending_2fa:
             await _safe_disconnect_temp_client(client, user_id)
+        # Удаляем чувствительные сообщения QR-flow (QR-фото и др.)
+        if sensitive_msg_ids:
+            await _delete_sensitive_messages(bot, chat_id, sensitive_msg_ids)
 
 
 async def handle_2fa_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

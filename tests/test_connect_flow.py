@@ -387,11 +387,13 @@ class TestOnConnectCancelCallback:
 
     @pytest.mark.asyncio
     async def test_cancels_qr_task(self):
-        """Отмена QR-flow → отменяет задачу."""
+        """Отмена QR-flow → отменяет задачу и убирает её из реестра."""
         user_id = 123456
         mock_task = MagicMock()
         mock_task.done.return_value = False
-        _qr_login_tasks[user_id] = mock_task
+        _qr_login_tasks[user_id] = {
+            "task": mock_task, "sensitive_msg_ids": [500], "chat_id": user_id,
+        }
 
         update = _make_callback_update(user_id=user_id)
         context = _make_context()
@@ -401,6 +403,7 @@ class TestOnConnectCancelCallback:
 
         mock_task.cancel.assert_called_once()
         assert user_id not in _qr_login_tasks
+        context.bot.delete_message.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cancels_2fa_flow(self):

@@ -1,5 +1,6 @@
 # tests/test_handlers.py — Тесты для handlers/pyrogram_handlers.py
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,6 +37,7 @@ from utils.bot_utils import update_user_menu
 
 from config import DEFAULT_STYLE, STYLE_TO_EMOJI
 TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"].format(emoji=STYLE_TO_EMOJI[DEFAULT_STYLE])
+REAL_ASYNCIO_SLEEP = asyncio.sleep
 
 
 def _close_coroutine_task(coro):
@@ -337,13 +339,15 @@ class TestOnConnect:
              patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connected"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
-            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
 
         mock_client.export_session_string.assert_called_once()
         mock_client.disconnect.assert_called_once()
         mock_save_session.assert_called_once_with(123, "session-123")
         mock_pc.start_listening.assert_called_once_with(123, "session-123")
         mock_bot.send_message.assert_called_once_with(chat_id=456, text="Connected")
+        # QR-сообщение удалено
+        mock_bot.delete_message.assert_called_once_with(chat_id=456, message_id=500)
 
     @pytest.mark.asyncio
     async def test_poll_qr_login_stops_when_save_session_fails(self, mock_bot):
@@ -362,7 +366,7 @@ class TestOnConnect:
              patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
-            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
 
         mock_pc.start_listening.assert_not_called()
         mock_bot.send_message.assert_called_once_with(chat_id=456, text="Connect failed")
@@ -385,7 +389,7 @@ class TestOnConnect:
              patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="Connect failed"):
             mock_pc.start_listening = AsyncMock(return_value=False)
 
-            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
 
         mock_clear.assert_called_once_with(123)
         mock_bot.send_message.assert_called_once_with(chat_id=456, text="Connect failed")
@@ -409,7 +413,7 @@ class TestOnConnect:
              patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="OK"):
             mock_pc.start_listening = AsyncMock(return_value=True)
 
-            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456)
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
 
         mock_client.storage.user_id.assert_called_with(777)
         mock_client.storage.is_bot.assert_called_with(False)
@@ -437,16 +441,66 @@ class TestOnConnect:
             mock_auth_cls.return_value.create = AsyncMock(return_value=b"new_key")
             mock_pyro_session.return_value = AsyncMock()
 
-            await _poll_qr_login(mock_client, 42, "en", mock_bot, 456)
+            await _poll_qr_login(mock_client, 42, "en", mock_bot, 456, sensitive_msg_ids=[500])
 
         # Клиент сохранён в _pending_2fa (не отключен)
         assert 42 in _pending_2fa
         assert _pending_2fa[42]["client"] is mock_client
         mock_bot.send_message.assert_called_once_with(chat_id=456, text="Enter 2FA password")
         mock_client.disconnect.assert_not_called()
+        # QR-сообщение удалено даже при переходе в 2FA
+        mock_bot.delete_message.assert_called_once_with(chat_id=456, message_id=500)
 
         # Cleanup
         _pending_2fa.pop(42, None)
+
+    @pytest.mark.asyncio
+    async def test_poll_qr_login_deletes_qr_message_on_timeout(self, mock_bot):
+        """QR-сообщение удаляется при таймауте."""
+        # Все poll-ы возвращают LoginToken (не авторизован)
+        login_token = type("LoginToken", (), {"token": b"tok"})()
+
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(return_value=login_token)
+        mock_client.disconnect = AsyncMock()
+
+        with patch("handlers.connect_handler.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.connect_handler.get_system_message", new_callable=AsyncMock, return_value="QR expired"):
+
+            await _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
+
+        # QR-сообщение удалено при таймауте
+        mock_bot.delete_message.assert_called_once_with(chat_id=456, message_id=500)
+
+    @pytest.mark.asyncio
+    async def test_poll_qr_login_deletes_qr_message_on_task_cancel(self, mock_bot):
+        """При отмене фоновой QR-задачи cleanup удаляет QR-сообщение ровно один раз."""
+        login_token = type("LoginToken", (), {"token": b"tok"})()
+
+        mock_client = AsyncMock()
+        mock_client.invoke = AsyncMock(return_value=login_token)
+        mock_client.disconnect = AsyncMock()
+
+        sleep_started = asyncio.Event()
+        release_sleep = asyncio.Event()
+
+        async def blocked_sleep(_: int) -> None:
+            sleep_started.set()
+            await release_sleep.wait()
+
+        with patch("handlers.connect_handler.asyncio.sleep", side_effect=blocked_sleep):
+            task = asyncio.create_task(
+                _poll_qr_login(mock_client, 123, "en", mock_bot, 456, sensitive_msg_ids=[500])
+            )
+            await sleep_started.wait()
+            await REAL_ASYNCIO_SLEEP(0)
+            task.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        mock_client.disconnect.assert_called_once()
+        mock_bot.delete_message.assert_called_once_with(chat_id=456, message_id=500)
 
 
 class TestOnPyrogramMessage:
