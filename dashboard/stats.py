@@ -27,13 +27,18 @@ class _GlobalStats:
     total_reasoning_tokens: int = 0
     total_latency_s: float = 0.0
     models: dict[str, int] = field(default_factory=dict)
+    model_details: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # Баланс x402gate
     last_balance: float | None = None
     initial_balance: float | None = None
+    topup_count: int = 0
+    topup_total: float = 0.0
+    wallet_balance: float | None = None
 
     # Черновики и автоответы
     drafts_generated: int = 0
+    draft_styles: dict[str, int] = field(default_factory=dict)
     auto_replies_sent: int = 0
 
     # Голосовые
@@ -106,15 +111,28 @@ def record_llm_request(
     _stats.total_reasoning_tokens += reasoning_tokens
     _stats.models[model] = _stats.models.get(model, 0) + 1
 
+    # Per-model детали
+    md = _stats.model_details.get(model)
+    if md is None:
+        md = {"count": 0, "tokens_in": 0, "tokens_out": 0, "reasoning": 0, "latency": 0.0}
+        _stats.model_details[model] = md
+    md["count"] += 1
+    md["tokens_in"] += tokens_in
+    md["tokens_out"] += tokens_out
+    md["reasoning"] += reasoning_tokens
+    md["latency"] += latency_s
+
 
 def record_llm_error() -> None:
     """Записывает ошибку LLM-запроса."""
     _stats.llm_errors += 1
 
 
-def record_draft() -> None:
+def record_draft(style: str = "") -> None:
     """Записывает генерацию черновика."""
     _stats.drafts_generated += 1
+    if style:
+        _stats.draft_styles[style] = _stats.draft_styles.get(style, 0) + 1
 
 
 def record_auto_reply() -> None:
@@ -133,10 +151,22 @@ def record_command(command: str) -> None:
 
 
 def update_balance(balance: float) -> None:
-    """Обновляет кэшированный prepaid-баланс x402gate."""
+    """Обновляет кэшированный prepaid-баланс x402gate.
+
+    Если баланс вырос — фиксирует пополнение.
+    """
     if _stats.initial_balance is None:
         _stats.initial_balance = balance
+    elif _stats.last_balance is not None and balance > _stats.last_balance:
+        topup_amount = balance - _stats.last_balance
+        _stats.topup_count += 1
+        _stats.topup_total += topup_amount
     _stats.last_balance = balance
+
+
+def update_wallet_balance(balance: float) -> None:
+    """Обновляет кэшированный баланс USDC-кошелька."""
+    _stats.wallet_balance = balance
 
 
 def update_user_counts(
@@ -168,7 +198,9 @@ def get_stats() -> dict[str, Any]:
 
     balance_spent = None
     if _stats.initial_balance is not None and _stats.last_balance is not None:
-        balance_spent = round(_stats.initial_balance - _stats.last_balance, 4)
+        balance_spent = round(
+            _stats.initial_balance + _stats.topup_total - _stats.last_balance, 4,
+        )
 
     return {
         "uptime_s": round(uptime_s, 0),
@@ -180,12 +212,17 @@ def get_stats() -> dict[str, Any]:
         "total_reasoning_tokens": _stats.total_reasoning_tokens,
         "avg_latency_s": avg_latency_s,
         "models": dict(_stats.models),
+        "model_details": {k: dict(v) for k, v in _stats.model_details.items()},
         # Баланс
         "last_balance": _stats.last_balance,
         "initial_balance": _stats.initial_balance,
         "balance_spent": balance_spent,
+        "topup_count": _stats.topup_count,
+        "topup_total": round(_stats.topup_total, 4),
+        "wallet_balance": _stats.wallet_balance,
         # Черновики
         "drafts_generated": _stats.drafts_generated,
+        "draft_styles": dict(_stats.draft_styles),
         "auto_replies_sent": _stats.auto_replies_sent,
         # Голосовые
         "voice_transcriptions": _stats.voice_transcriptions,

@@ -369,7 +369,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply set as draft for user {user_id} in chat {chat_id}")
-        dash_stats.record_draft()
+        dash_stats.record_draft(style)
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
@@ -447,7 +447,7 @@ async def _generate_reply_for_chat(
         draft_replaced = True
 
         print(f"{get_timestamp()} [DRAFT] Emoji reply set as draft for user {user_id} in chat {chat_id}")
-        dash_stats.record_draft()
+        dash_stats.record_draft(style)
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
@@ -535,7 +535,7 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply re-generated for user {user_id} in chat {chat_id}")
-        dash_stats.record_draft()
+        dash_stats.record_draft(style)
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
@@ -813,7 +813,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [DRAFT] Response set as draft for user {user_id} in chat {chat_id}")
-        dash_stats.record_draft()
+        dash_stats.record_draft(style)
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа

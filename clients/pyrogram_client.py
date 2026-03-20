@@ -8,7 +8,7 @@ from pyrogram import Client, filters, raw
 import pyrogram
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
-from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, DEBUG_PRINT, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
+from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, DEBUG_PRINT, VOICE_TRANSCRIPTION_DELAY, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
 from utils.utils import get_timestamp
 
 
@@ -264,7 +264,9 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
         # гарантирует, что повторные вызовы не обращаются к API.
         if voice_indices:
             ok_count = 0
-            for idx, mid in zip(voice_indices, voice_msg_ids):
+            for i, (idx, mid) in enumerate(zip(voice_indices, voice_msg_ids)):
+                if i > 0:
+                    await asyncio.sleep(VOICE_TRANSCRIPTION_DELAY)
                 transcription = await transcribe_voice(user_id, chat_id, mid)
                 messages[idx]["text"] = transcription or "[voice message]"
                 if transcription:

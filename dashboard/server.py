@@ -11,6 +11,7 @@ import pathlib
 import jinja2
 from aiohttp import web
 
+from config import STYLE_TO_EMOJI
 from dashboard import stats
 from dashboard.auth import DASHBOARD_KEY, check_auth, set_auth_cookie
 from database.users import get_dashboard_user_stats
@@ -48,7 +49,7 @@ async def handle_dashboard(request: web.Request) -> web.Response:
         autoescape=False,
     )
     template = env.get_template("dashboard.html")
-    html = template.render()
+    html = template.render(style_to_emoji=STYLE_TO_EMOJI)
 
     response = web.Response(text=html, content_type="text/html")
     set_auth_cookie(response)

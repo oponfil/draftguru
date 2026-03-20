@@ -245,6 +245,8 @@ class X402GateClient:
         # Получаем баланс USDC на кошельке асинхронно, чтобы не блокировать hot path (best-effort)
         async def _log_wallet_balance():
             wallet_usdc = await self._get_wallet_usdc_balance()
+            if wallet_usdc is not None:
+                dash_stats.update_wallet_balance(wallet_usdc)
             wallet_str = f", wallet=${wallet_usdc:.4f}" if wallet_usdc is not None else ""
             print(f"{get_timestamp()} [X402GATE] Prepaid balance: ${self._prepaid_balance:.4f}{wallet_str}")
 

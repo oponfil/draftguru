@@ -306,7 +306,7 @@
         </div>
     </div>
 
-    <!-- KPI Cards -->
+    <!-- KPI Cards: Users -->
     <div class="grid" id="kpi-grid">
         <div class="card">
             <div class="card-label">Total Users</div>
@@ -320,36 +320,60 @@
             <div class="card-label">Active (24h)</div>
             <div class="card-value" id="kpi-active">—</div>
         </div>
+    </div>
+
+    <!-- Commands -->
+    <div class="summary" id="commands-summary">
+        <!-- Injected by JS -->
+    </div>
+
+    <!-- KPI Cards: Finance -->
+    <div class="grid">
         <div class="card">
-            <div class="card-label">Prepaid Balance</div>
-            <div class="card-value" id="kpi-balance">—</div>
+            <div class="card-label">Wallet Balance</div>
+            <div class="card-value" id="kpi-wallet">—</div>
         </div>
         <div class="card">
-            <div class="card-label">Balance Spent</div>
+            <div class="card-label">x402gate Topped Up</div>
+            <div class="card-value color-green" id="kpi-initial">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Total Spent</div>
             <div class="card-value" id="kpi-spent">—</div>
         </div>
+        <div class="card">
+            <div class="card-label">x402gate Balance</div>
+            <div class="card-value" id="kpi-balance">—</div>
+        </div>
     </div>
+
+    <!-- Reply Styles -->
+    <div class="summary" id="styles-summary">
+        <!-- Injected by JS -->
+    </div>
+
+    <!-- Models -->
+    <div class="section">
+        <div class="section-header">
+            <h3>Models</h3>
+        </div>
+        <div class="grid" id="detail-grid">
+            <!-- Injected by JS -->
+        </div>
+    </div>
+
 
     <!-- LLM Summary -->
     <div class="summary" id="llm-summary">
         <div class="summary-item">Drafts: <strong id="sum-drafts">0</strong></div>
         <div class="summary-item">Auto-replies: <strong id="sum-autoreplies">0</strong></div>
-        <div class="summary-item">Voice: <strong id="sum-voice">0</strong></div>
+        <div class="summary-item">Voice Transcriptions: <strong id="sum-voice">0</strong></div>
         <div class="summary-item">Avg latency: <strong id="sum-latency">0s</strong></div>
+        <div class="summary-item">Avg cost/req: <strong id="sum-avg-cost">—</strong></div>
         <div class="summary-item">Tokens in: <strong id="sum-tokens-in">0</strong></div>
         <div class="summary-item">Tokens out: <strong id="sum-tokens-out">0</strong></div>
         <div class="summary-item">Errors: <strong id="sum-errors" class="color-red">0</strong></div>
         <div class="summary-item">Warnings: <strong id="sum-warnings" class="color-yellow">0</strong></div>
-    </div>
-
-    <!-- Models & Commands -->
-    <div class="section">
-        <div class="section-header">
-            <h3>Models & Commands</h3>
-        </div>
-        <div class="grid" id="detail-grid">
-            <!-- Injected by JS -->
-        </div>
     </div>
 
     <!-- Live Logs (x402gate style) -->
@@ -446,34 +470,34 @@
             const grid = document.getElementById('detail-grid');
             let html = '';
 
-            // Models card
-            const models = stats.models || {};
-            const modelNames = Object.keys(models).sort((a, b) => models[b] - models[a]);
-            if (modelNames.length > 0) {
+            // Per-model cards
+            const details = stats.model_details || {};
+            const modelNames = Object.keys(details).sort((a, b) => details[b].count - details[a].count);
+            for (const m of modelNames) {
+                const d = details[m];
+                const short = m.split('/').pop();
+                const avgLat = d.count > 0 ? (d.latency / d.count).toFixed(2) : '0';
                 html += `<div class="card">
-                    <div class="card-header"><span class="card-name">Models</span></div>
-                    <div class="card-metrics">
-                        ${modelNames.map(m => {
-                    const short = m.split('/').pop();
-                    return `<div class="metric">${escHtml(short)}<strong>${models[m]}</strong></div>`;
-                }).join('')}
+                    <div class="card-header">
+                        <span class="card-name">${escHtml(short)}</span>
+                        <span class="card-type">${d.count} req</span>
                     </div>
-                </div>`;
-            }
-
-            // Commands card
-            const cmds = stats.commands || {};
-            const cmdNames = Object.keys(cmds).sort((a, b) => cmds[b] - cmds[a]);
-            if (cmdNames.length > 0) {
-                html += `<div class="card">
-                    <div class="card-header"><span class="card-name">Commands</span></div>
                     <div class="card-metrics">
-                        ${cmdNames.map(c => `<div class="metric">${escHtml(c)}<strong>${cmds[c]}</strong></div>`).join('')}
+                        <div class="metric">Tokens in<strong>${formatNumber(d.tokens_in)}</strong></div>
+                        <div class="metric">Tokens out<strong>${formatNumber(d.tokens_out)}</strong></div>
+                        <div class="metric">Reasoning<strong>${formatNumber(d.reasoning)}</strong></div>
+                        <div class="metric">Avg latency<strong>${avgLat}s</strong></div>
                     </div>
                 </div>`;
             }
 
             grid.innerHTML = html;
+
+            // Commands bar
+            const cmds = stats.commands || {};
+            const cmdNames = Object.keys(cmds).sort((a, b) => cmds[b] - cmds[a]);
+            const cmdBar = document.getElementById('commands-summary');
+            cmdBar.innerHTML = cmdNames.map(c => `<div class="summary-item">${escHtml(c)}: <strong>${cmds[c]}</strong></div>`).join('');
         }
 
         function copyLogs() {
@@ -513,19 +537,46 @@
                 document.getElementById('uptime').textContent = formatUptime(stats.uptime_s);
                 document.getElementById('total-requests').textContent = stats.llm_requests;
 
-                // KPI cards
-                document.getElementById('kpi-users').textContent = stats.total_users || '—';
-                document.getElementById('kpi-connected').textContent = stats.connected_users || '—';
-                document.getElementById('kpi-active').textContent = stats.active_users_24h || '—';
+                // KPI cards (user counts are updated separately via /api/users)
+                document.getElementById('kpi-wallet').textContent =
+                    stats.wallet_balance !== null ? '$' + stats.wallet_balance.toFixed(4) : '—';
+                const initialEl = document.getElementById('kpi-initial');
+                if (stats.topup_count > 0) {
+                    initialEl.textContent = '$' + stats.topup_total.toFixed(4);
+                    initialEl.nextElementSibling && initialEl.nextElementSibling.remove();
+                    if (!document.getElementById('topup-count-label')) {
+                        const sub = document.createElement('div');
+                        sub.id = 'topup-count-label';
+                        sub.className = 'card-label';
+                        sub.textContent = stats.topup_count + ' top-up(s)';
+                        initialEl.parentElement.appendChild(sub);
+                    } else {
+                        document.getElementById('topup-count-label').textContent = stats.topup_count + ' top-up(s)';
+                    }
+                } else {
+                    initialEl.textContent = stats.initial_balance !== null ? '$' + stats.initial_balance.toFixed(4) : '—';
+                    const oldLabel = document.getElementById('topup-count-label');
+                    if (oldLabel) oldLabel.remove();
+                }
                 document.getElementById('kpi-balance').textContent =
                     stats.last_balance !== null ? '$' + stats.last_balance.toFixed(4) : '—';
                 const spentEl = document.getElementById('kpi-spent');
                 if (stats.balance_spent !== null) {
                     spentEl.textContent = '$' + stats.balance_spent.toFixed(4);
-                    spentEl.className = 'card-value' + (stats.balance_spent > 0 ? ' color-red' : '');
                 } else {
                     spentEl.textContent = '—';
                 }
+
+                // Reply styles bar
+                const styleEmojis = {{ style_to_emoji | tojson }};
+                const draftStyles = stats.draft_styles || {};
+                const styleBar = document.getElementById('styles-summary');
+                const styleNames = Object.keys(styleEmojis);
+                styleBar.innerHTML = styleNames.map(s => {
+                    const count = draftStyles[s] || 0;
+                    const emoji = styleEmojis[s];
+                    return `<div class="summary-item">${emoji} ${s}: <strong>${count}</strong></div>`;
+                }).join('');
 
                 // LLM summary
                 document.getElementById('sum-drafts').textContent = stats.drafts_generated;
@@ -536,6 +587,10 @@
                 document.getElementById('sum-tokens-out').textContent = formatNumber(stats.total_tokens_out);
                 document.getElementById('sum-errors').textContent = stats.errors;
                 document.getElementById('sum-warnings').textContent = stats.warnings;
+                const avgCost = (stats.balance_spent !== null && stats.llm_requests > 0)
+                    ? '$' + (stats.balance_spent / stats.llm_requests).toFixed(4)
+                    : '—';
+                document.getElementById('sum-avg-cost').textContent = avgCost;
 
                 // Details
                 renderDetails(stats);
