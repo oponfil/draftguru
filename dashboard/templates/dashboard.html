@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DraftGuru Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            color: #e0e0e0;
+            background: #0d1117;
+            line-height: 1.6;
+            padding: 24px;
+        }
+
+        a {
+            color: #58a6ff;
+        }
+
+        .header {
+            max-width: 1200px;
+            margin: 0 auto 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-size: 1.4em;
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 0.9em;
+            color: #8b949e;
+        }
+
+        .header-stats strong {
+            color: #e0e0e0;
+        }
+
+        .grid {
+            max-width: 1200px;
+            margin: 0 auto 24px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-name {
+            font-weight: 600;
+            font-size: 1.05em;
+        }
+
+        .card-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #e0e0e0;
+            margin-bottom: 4px;
+        }
+
+        .card-label {
+            font-size: 0.82em;
+            color: #8b949e;
+        }
+
+        .card-type {
+            font-size: 0.75em;
+            color: #8b949e;
+            background: #21262d;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .card-metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .metric {
+            color: #8b949e;
+        }
+
+        .metric strong {
+            color: #e0e0e0;
+            display: block;
+        }
+
+        /* Summary bar */
+        .summary {
+            max-width: 1200px;
+            margin: 0 auto 24px;
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            gap: 32px;
+            flex-wrap: wrap;
+            font-size: 0.9em;
+        }
+
+        .summary-item {
+            color: #8b949e;
+        }
+
+        .summary-item strong {
+            color: #e0e0e0;
+            font-size: 1.1em;
+        }
+
+        .color-green {
+            color: #3fb950 !important;
+        }
+
+        .color-red {
+            color: #f85149 !important;
+        }
+
+        .color-yellow {
+            color: #d29922 !important;
+        }
+
+        /* Section headers */
+        .section {
+            max-width: 1200px;
+            margin: 0 auto 24px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .section-header h3 {
+            font-size: 1em;
+            color: #c9d1d9;
+        }
+
+        /* Logs (x402gate style) */
+        .logs-count {
+            font-size: 0.8em;
+            color: #484f58;
+        }
+
+        .logs {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.78em;
+            line-height: 1.7;
+        }
+
+        .log-entry {
+            padding: 2px 12px;
+            border-bottom: 1px solid #161b22;
+        }
+
+        .log-entry:hover {
+            background: #161b22;
+        }
+
+        .log-ts {
+            color: #484f58;
+            margin-right: 8px;
+        }
+
+        .log-level {
+            display: inline-block;
+            width: 52px;
+            text-align: center;
+            border-radius: 3px;
+            font-size: 0.85em;
+            margin-right: 6px;
+            padding: 0 4px;
+        }
+
+        .log-INFO {
+            color: #58a6ff;
+            background: #0d1d30;
+        }
+
+        .log-WARNING {
+            color: #d29922;
+            background: #1d1800;
+        }
+
+        .log-ERROR {
+            color: #f85149;
+            background: #1a0e0e;
+        }
+
+        /* Buttons */
+        .btn {
+            background: #21262d;
+            color: #8b949e;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 4px 12px;
+            font-size: 0.78em;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn:hover {
+            background: #30363d;
+            color: #e0e0e0;
+        }
+
+        .btn.copied {
+            color: #3fb950;
+            border-color: #3fb950;
+        }
+
+        .btn.active {
+            background: #1f6feb;
+            color: #fff;
+            border-color: #1f6feb;
+        }
+
+        /* Log filters */
+        .log-filters {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .log-filters .btn {
+            font-size: 0.72em;
+            padding: 2px 8px;
+        }
+
+        /* Refresh indicator */
+        .refresh-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #3fb950;
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .footer {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            color: #484f58;
+            font-size: 0.8em;
+            padding: 12px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>🦉 DraftGuru <span style="color:#8b949e; font-weight:400">Dashboard</span></h1>
+        <div class="header-stats">
+            <span>Uptime: <strong id="uptime">—</strong></span>
+            <span>LLM requests: <strong id="total-requests">0</strong></span>
+            <span><span class="refresh-indicator"></span>Auto-refresh 5s</span>
+        </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid" id="kpi-grid">
+        <div class="card">
+            <div class="card-label">Total Users</div>
+            <div class="card-value" id="kpi-users">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Connected</div>
+            <div class="card-value" id="kpi-connected">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Active (24h)</div>
+            <div class="card-value" id="kpi-active">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Prepaid Balance</div>
+            <div class="card-value" id="kpi-balance">—</div>
+        </div>
+        <div class="card">
+            <div class="card-label">Balance Spent</div>
+            <div class="card-value" id="kpi-spent">—</div>
+        </div>
+    </div>
+
+    <!-- LLM Summary -->
+    <div class="summary" id="llm-summary">
+        <div class="summary-item">Drafts: <strong id="sum-drafts">0</strong></div>
+        <div class="summary-item">Auto-replies: <strong id="sum-autoreplies">0</strong></div>
+        <div class="summary-item">Voice: <strong id="sum-voice">0</strong></div>
+        <div class="summary-item">Avg latency: <strong id="sum-latency">0s</strong></div>
+        <div class="summary-item">Tokens in: <strong id="sum-tokens-in">0</strong></div>
+        <div class="summary-item">Tokens out: <strong id="sum-tokens-out">0</strong></div>
+        <div class="summary-item">Errors: <strong id="sum-errors" class="color-red">0</strong></div>
+        <div class="summary-item">Warnings: <strong id="sum-warnings" class="color-yellow">0</strong></div>
+    </div>
+
+    <!-- Models & Commands -->
+    <div class="section">
+        <div class="section-header">
+            <h3>Models & Commands</h3>
+        </div>
+        <div class="grid" id="detail-grid">
+            <!-- Injected by JS -->
+        </div>
+    </div>
+
+    <!-- Live Logs (x402gate style) -->
+    <div class="section">
+        <div class="section-header">
+            <h3>Live Logs</h3>
+            <div style="display:flex;align-items:center;gap:10px">
+                <div class="log-filters">
+                    <button class="btn active" data-filter="ALL" onclick="setLogFilter('ALL', this)">All</button>
+                    <button class="btn" data-filter="ERROR" onclick="setLogFilter('ERROR', this)">Errors</button>
+                    <button class="btn" data-filter="WARNING" onclick="setLogFilter('WARNING', this)">Warnings</button>
+                </div>
+                <span class="logs-count" id="logs-count"></span>
+                <button class="btn" id="copy-logs-btn" onclick="copyLogs()">Copy All</button>
+            </div>
+        </div>
+        <div class="logs" id="logs-container">
+            <!-- Log entries injected by JS -->
+        </div>
+    </div>
+
+    <div class="footer">
+        <span>DraftGuru Dashboard</span> ·
+        <a href="/api/stats">Stats JSON</a> ·
+        <a href="/api/logs">Logs JSON</a>
+    </div>
+
+    <script>
+        let _lastLogs = [];
+        let _logFilter = 'ALL';
+
+        function formatUptime(seconds) {
+            const d = Math.floor(seconds / 86400);
+            const h = Math.floor((seconds % 86400) / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            if (d > 0) return `${d}d ${h}h ${m}m`;
+            if (h > 0) return `${h}h ${m}m ${s}s`;
+            return `${m}m ${s}s`;
+        }
+
+        function formatNumber(n) {
+            if (n === null || n === undefined) return '—';
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n.toString();
+        }
+
+        function escHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        function setLogFilter(filter, btn) {
+            _logFilter = filter;
+            document.querySelectorAll('.log-filters .btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderLogs(_lastLogs);
+        }
+
+        function renderLogs(logs) {
+            _lastLogs = logs;
+            const container = document.getElementById('logs-container');
+            const countEl = document.getElementById('logs-count');
+
+            // Filter
+            let filtered = logs;
+            if (_logFilter !== 'ALL') {
+                filtered = logs.filter(l => l.level === _logFilter);
+            }
+
+            countEl.textContent = `${filtered.length} entries`;
+
+            const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
+            // Logs come newest-first from API, reverse for display (oldest at top)
+            const sorted = filtered.slice().reverse();
+
+            container.innerHTML = sorted.map(log => {
+                const d = new Date(log.ts * 1000);
+                const mon = d.toLocaleString('en-US', { month: 'short' });
+                const day = d.getDate().toString().padStart(2, '0');
+                const time = d.toLocaleTimeString('en-GB', { hour12: false });
+                const ts = `${mon} ${day} ${time}`;
+                const lvl = log.level || 'INFO';
+                return `<div class="log-entry"><span class="log-ts">${ts}</span><span class="log-level log-${lvl}">${lvl}</span>${escHtml(log.message)}</div>`;
+            }).join('');
+
+            if (atBottom) container.scrollTop = container.scrollHeight;
+        }
+
+        function renderDetails(stats) {
+            const grid = document.getElementById('detail-grid');
+            let html = '';
+
+            // Models card
+            const models = stats.models || {};
+            const modelNames = Object.keys(models).sort((a, b) => models[b] - models[a]);
+            if (modelNames.length > 0) {
+                html += `<div class="card">
+                    <div class="card-header"><span class="card-name">Models</span></div>
+                    <div class="card-metrics">
+                        ${modelNames.map(m => {
+                    const short = m.split('/').pop();
+                    return `<div class="metric">${escHtml(short)}<strong>${models[m]}</strong></div>`;
+                }).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // Commands card
+            const cmds = stats.commands || {};
+            const cmdNames = Object.keys(cmds).sort((a, b) => cmds[b] - cmds[a]);
+            if (cmdNames.length > 0) {
+                html += `<div class="card">
+                    <div class="card-header"><span class="card-name">Commands</span></div>
+                    <div class="card-metrics">
+                        ${cmdNames.map(c => `<div class="metric">${escHtml(c)}<strong>${cmds[c]}</strong></div>`).join('')}
+                    </div>
+                </div>`;
+            }
+
+            grid.innerHTML = html;
+        }
+
+        function copyLogs() {
+            const logs = _logFilter === 'ALL' ? _lastLogs : _lastLogs.filter(l => l.level === _logFilter);
+            const text = logs.map(log => {
+                const d = new Date(log.ts * 1000);
+                const mon = d.toLocaleString('en-US', { month: 'short' });
+                const day = d.getDate().toString().padStart(2, '0');
+                const time = d.toLocaleTimeString('en-GB', { hour12: false });
+                const lvl = log.level || 'INFO';
+                return `${mon} ${day} ${time} ${lvl} ${log.message}`;
+            }).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copy-logs-btn');
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => { btn.textContent = 'Copy All'; btn.classList.remove('copied'); }, 2000);
+            });
+        }
+
+        async function refresh() {
+            try {
+                const [statsResp, logsResp] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/logs')
+                ]);
+
+                if (statsResp.status === 401) {
+                    document.body.innerHTML = '<h2 style="text-align:center;margin-top:100px;color:#f85149">401 Unauthorized — append ?key=YOUR_KEY to URL</h2>';
+                    return;
+                }
+
+                const stats = await statsResp.json();
+                const logs = await logsResp.json();
+
+                // Header
+                document.getElementById('uptime').textContent = formatUptime(stats.uptime_s);
+                document.getElementById('total-requests').textContent = stats.llm_requests;
+
+                // KPI cards
+                document.getElementById('kpi-users').textContent = stats.total_users || '—';
+                document.getElementById('kpi-connected').textContent = stats.connected_users || '—';
+                document.getElementById('kpi-active').textContent = stats.active_users_24h || '—';
+                document.getElementById('kpi-balance').textContent =
+                    stats.last_balance !== null ? '$' + stats.last_balance.toFixed(4) : '—';
+                const spentEl = document.getElementById('kpi-spent');
+                if (stats.balance_spent !== null) {
+                    spentEl.textContent = '$' + stats.balance_spent.toFixed(4);
+                    spentEl.className = 'card-value' + (stats.balance_spent > 0 ? ' color-red' : '');
+                } else {
+                    spentEl.textContent = '—';
+                }
+
+                // LLM summary
+                document.getElementById('sum-drafts').textContent = stats.drafts_generated;
+                document.getElementById('sum-autoreplies').textContent = stats.auto_replies_sent;
+                document.getElementById('sum-voice').textContent = stats.voice_transcriptions;
+                document.getElementById('sum-latency').textContent = stats.avg_latency_s + 's';
+                document.getElementById('sum-tokens-in').textContent = formatNumber(stats.total_tokens_in);
+                document.getElementById('sum-tokens-out').textContent = formatNumber(stats.total_tokens_out);
+                document.getElementById('sum-errors').textContent = stats.errors;
+                document.getElementById('sum-warnings').textContent = stats.warnings;
+
+                // Details
+                renderDetails(stats);
+
+                // Logs
+                renderLogs(logs);
+
+                // Also refresh user stats periodically (every 30s via separate endpoint)
+                if (!window._lastUserRefresh || Date.now() - window._lastUserRefresh > 30000) {
+                    window._lastUserRefresh = Date.now();
+                    fetch('/api/users').then(r => r.json()).then(u => {
+                        document.getElementById('kpi-users').textContent = u.total_users || '—';
+                        document.getElementById('kpi-connected').textContent = u.connected_users || '—';
+                        document.getElementById('kpi-active').textContent = u.active_users_24h || '—';
+                    }).catch(() => { });
+                }
+            } catch (e) {
+                console.error('Dashboard refresh failed:', e);
+            }
+        }
+
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+
+</body>
+
+</html>

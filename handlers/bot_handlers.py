@@ -16,6 +16,7 @@ from database.users import update_chat_prompt, update_last_msg_at, update_tg_rat
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
+from dashboard import stats as dash_stats
 from handlers.connect_handler import on_connect
 
 
@@ -27,6 +28,7 @@ async def on_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /start from user {u.id} (@{u.username})")
+    dash_stats.record_command("/start")
 
     # Сохраняем пользователя в БД
     if not await upsert_effective_user(update):

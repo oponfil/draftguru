@@ -1,7 +1,7 @@
 # database/users.py — CRUD для таблицы users
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from config import DEBUG_PRINT, USER_CACHE_TTL
@@ -376,3 +376,48 @@ async def update_chat_prompt(user_id: int, chat_id: int, prompt: str | None) -> 
     return await update_user_settings(
         user_id, {"chat_prompts": chat_prompts}, current_settings=settings,
     )
+
+
+async def get_dashboard_user_stats() -> dict[str, int]:
+    """Возвращает статистику пользователей для дашборда.
+
+    Returns:
+        dict с ключами total_users, connected_users, active_users_24h
+    """
+    try:
+        total_result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "user_id", count="exact"
+            ).execute()
+        )
+        total_users = total_result.count or 0
+
+        connected_result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "user_id", count="exact"
+            ).not_.is_("session_string", "null").execute()
+        )
+        connected_users = connected_result.count or 0
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=24)
+        ).isoformat()
+        active_result = await run_supabase(
+            lambda: supabase.table("users").select(
+                "user_id", count="exact"
+            ).gte("last_msg_at", cutoff).execute()
+        )
+        active_users_24h = active_result.count or 0
+
+        return {
+            "total_users": total_users,
+            "connected_users": connected_users,
+            "active_users_24h": active_users_24h,
+        }
+    except Exception as e:
+        print(f"{get_timestamp()} [DB] ERROR get_dashboard_user_stats: {e}")
+        return {
+            "total_users": 0,
+            "connected_users": 0,
+            "active_users_24h": 0,
+        }

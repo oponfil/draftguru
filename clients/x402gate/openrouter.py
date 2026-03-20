@@ -18,6 +18,7 @@ from config import (
     RETRY_DELAY,
     RETRY_EXPONENTIAL_BASE,
 )
+from dashboard import stats as dash_stats
 from prompts import BOT_PROMPT
 from utils.utils import get_timestamp
 
@@ -138,12 +139,21 @@ async def generate_response(
                 f"{duration:.2f}s | {token_info}"
             )
 
+            dash_stats.record_llm_request(
+                model=model,
+                latency_s=duration,
+                tokens_in=input_tokens,
+                tokens_out=output_tokens,
+                reasoning_tokens=reasoning_tokens,
+            )
+
             _log_to_file(payload, text.strip(), model, duration, usage, reasoning_text)
 
             return text.strip()
 
         except Exception as e:
             last_error = e
+            dash_stats.record_llm_error()
 
             # TopupError — ретрай бесполезен
             if isinstance(e, (TopupError, NonRetriableRequestError, ValueError)):

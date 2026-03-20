@@ -15,6 +15,7 @@ from config import (
     STYLE_TO_EMOJI,
 )
 from clients import pyrogram_client
+from dashboard import stats as dash_stats
 from database.users import get_user, update_last_msg_at
 from handlers.pyrogram_handlers import (
     _bot_drafts, _bot_draft_echoes, _reply_locks,
@@ -54,6 +55,7 @@ async def on_poke(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [POKE] /poke from user {u.id}")
+    dash_stats.record_command("/poke")
 
     # Получаем список чатов
     chat_ids = await pyrogram_client.get_private_dialogs(u.id, limit=CHATS_FETCH_LIMIT)

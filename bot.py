@@ -1,6 +1,7 @@
 # bot.py — Telegram-бот DraftGuru (запуск и конфигурация)
 
 import asyncio
+import builtins
 import os
 import traceback
 
@@ -45,6 +46,29 @@ from handlers.styles_handler import (  # noqa: E402
 from utils.pyrogram_utils import restore_sessions  # noqa: E402
 
 PRIVATE_ONLY_FILTER = filters.ChatType.PRIVATE
+
+
+# ====== DASHBOARD: print() interceptor ======
+# Captures all print() output into the dashboard's rolling log buffer
+
+from dashboard import stats as dash_stats  # noqa: E402
+from dashboard.server import start_dashboard_server  # noqa: E402
+
+_original_print = builtins.print
+
+
+def _dashboard_print(*args, **kwargs):
+    """Wrapper around print() that also feeds output to dashboard stats."""
+    _original_print(*args, **kwargs)
+    try:
+        message = " ".join(str(a) for a in args)
+        if message.strip():
+            dash_stats.capture_log(message)
+    except Exception:
+        pass  # Never break the bot due to dashboard
+
+
+builtins.print = _dashboard_print
 
 
 # ====== ОБРАБОТЧИК ОШИБОК ======
@@ -122,8 +146,18 @@ async def post_init(app: Application) -> None:
     global _poll_task
     _poll_task = asyncio.create_task(_poll_missed_loop())
 
+    # Запускаем dashboard HTTP-сервер (необязательная подсистема)
+    global _dashboard_runner
+    try:
+        _dashboard_runner = await start_dashboard_server()
+    except Exception as e:
+        print(f"{get_timestamp()} [DASHBOARD] ERROR: failed to start dashboard server: {e}")
+        print(f"{get_timestamp()} [DASHBOARD] Bot will continue without dashboard.")
+        _dashboard_runner = None
+
 
 _poll_task: asyncio.Task | None = None
+_dashboard_runner = None
 
 
 async def _poll_missed_loop() -> None:

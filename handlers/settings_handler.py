@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from config import AUTO_REPLY_OPTIONS, DEBUG_PRINT, STYLE_OPTIONS, TIMEZONE_OFFSETS
 from database.users import update_last_msg_at, update_user_settings
+from dashboard import stats as dash_stats
 from system_messages import get_system_message, get_system_messages
 from utils.telegram_user import ensure_effective_user
 from handlers.connect_handler import clear_pending_input
@@ -111,6 +112,7 @@ async def on_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /settings from user {u.id}")
+    dash_stats.record_command("/settings")
 
 
 @serialize_user_updates

@@ -51,6 +51,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Optional for debugging:
 - `DEBUG_PRINT=true` — verbose console logs (default `false`)
 - `LOG_TO_FILE=true` — save full AI requests/responses to `logs/` for local debugging (default `false`)
+- `DASHBOARD_KEY` — secret key for dashboard access (see [Dashboard](#dashboard) section)
 
 Important: keep `LOG_TO_FILE` disabled in production — it logs full prompts, chat history, and model responses.
 
@@ -127,6 +128,29 @@ All voice messages in the chat history — from both sides (yours and the contac
 
 Stickers are processed by emoji — the bot sees the sticker's emoji in the conversation context and generates an appropriate reply.
 
+## Dashboard
+
+DraftGuru includes a built-in monitoring dashboard — a single-page web UI with live metrics and logs.
+
+**Features:**
+- KPI cards: users (total / connected / active 24h), prepaid balance, balance spent
+- LLM stats: requests, tokens, latency, models, errors
+- Draft / auto-reply / voice counters
+- Live log viewer with filtering (All / Errors / Warnings) and Copy All
+- Auto-refresh every 5 seconds
+
+**Access:**
+
+Set `DASHBOARD_KEY` in `.env`, then open:
+
+```
+https://<your-domain>/dashboard?key=YOUR_KEY
+```
+
+After the first visit, a cookie is set for 30 days — no need to pass the key again.
+
+The dashboard runs on the same port as the bot (`$PORT`, default `8080`). If `DASHBOARD_KEY` is not set, the dashboard is disabled.
+
 ## Deploy on Railway
 
 1. Create a project on [Railway](https://railway.app)
@@ -150,13 +174,14 @@ Tests run automatically on GitHub on push to `main`/`dev` and on PRs (GitHub Act
 
 ## Architecture
 
-- **bot.py** — Entry point: handler registration and bot startup
+- **bot.py** — Entry point: handler registration, bot startup, dashboard server
 - **handlers/** — Bot commands and Pyrogram events
 - **config.py** — Constants and environment variables
 - **prompts.py** — AI prompts
 - **system_messages.py** — System messages with auto-translation
 - **clients/** — API clients (x402gate, Pyrogram)
 - **logic/** — Reply generation business logic
+- **dashboard/** — Monitoring dashboard (aiohttp server, in-memory stats, HTML SPA)
 - **database/** — Supabase queries
 - **utils/** — Utilities
 - **scripts/** — CLI scripts (Railway logs, session generation)
@@ -168,6 +193,7 @@ Tests run automatically on GitHub on push to `main`/`dev` and on PRs (GitHub Act
 - **python-telegram-bot** — Telegram Bot API
 - **Pyrogram** — Telegram Client API (reading messages, drafts)
 - **x402gate.io** → OpenRouter → any model (configured in `config.py`, paid with USDC on Base)
+- **aiohttp** — Dashboard HTTP server
 - **Supabase** — PostgreSQL (DB)
 - **Railway** — hosting
 

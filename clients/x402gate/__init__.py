@@ -22,6 +22,7 @@ from config import (
     X402GATE_TIMEOUT,
     X402GATE_URL,
 )
+from dashboard import stats as dash_stats
 from utils.utils import get_timestamp
 
 
@@ -359,6 +360,7 @@ class X402GateClient:
             if prepaid_balance_header is not None:
                 try:
                     self._prepaid_balance = float(prepaid_balance_header)
+                    dash_stats.update_balance(self._prepaid_balance)
                 except (ValueError, TypeError):
                     pass
 

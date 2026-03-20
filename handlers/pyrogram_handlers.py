@@ -26,6 +26,7 @@ from utils.utils import (
 )
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
+from dashboard import stats as dash_stats
 from logic.reply import generate_reply
 from clients import pyrogram_client
 from database.users import clear_session, get_user, update_chat_style, update_last_msg_at
@@ -54,6 +55,7 @@ async def on_disconnect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     asyncio.create_task(update_last_msg_at(u.id))
+    dash_stats.record_command("/disconnect")
 
     is_active = pyrogram_client.is_active(u.id)
     has_pending_2fa = u.id in _pending_2fa
@@ -161,6 +163,7 @@ async def on_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /status from user {u.id} (@{u.username}, lang={u.language_code})")
+    dash_stats.record_command("/status")
 
     if pyrogram_client.is_active(u.id):
         msg = await get_system_message(u.language_code, "status_connected")
@@ -243,6 +246,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         )
         if text:
             print(f"{get_timestamp()} [PYROGRAM] Voice transcribed for user {user_id} in chat {message.chat.id}: {len(text)} chars")
+            dash_stats.record_voice_transcription()
         else:
             text = "[voice message]"
 
@@ -365,6 +369,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply set as draft for user {user_id} in chat {chat_id}")
+        dash_stats.record_draft()
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
@@ -442,6 +447,7 @@ async def _generate_reply_for_chat(
         draft_replaced = True
 
         print(f"{get_timestamp()} [DRAFT] Emoji reply set as draft for user {user_id} in chat {chat_id}")
+        dash_stats.record_draft()
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
@@ -529,6 +535,7 @@ async def _regenerate_reply(user_id: int, chat_id: int) -> None:
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [PYROGRAM] Reply re-generated for user {user_id} in chat {chat_id}")
+        dash_stats.record_draft()
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
@@ -621,6 +628,7 @@ async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds
             _bot_drafts.pop(key, None)
             _bot_draft_echoes.pop(key, None)
             print(f"{get_timestamp()} [AUTO-REPLY] Sent for user {user_id} in chat {chat_id} after {delay:.0f}s")
+            dash_stats.record_auto_reply()
 
     except asyncio.CancelledError:
         pass
@@ -805,6 +813,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         _track_replied_chat(user_id, chat_id)
 
         print(f"{get_timestamp()} [DRAFT] Response set as draft for user {user_id} in chat {chat_id}")
+        dash_stats.record_draft()
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа

@@ -30,6 +30,7 @@ from utils.utils import (
 )
 from utils.bot_utils import update_user_menu
 from clients import pyrogram_client
+from dashboard import stats as dash_stats
 from database.users import clear_session, save_session, update_last_msg_at
 from system_messages import get_system_message
 from utils.telegram_user import upsert_effective_user
@@ -205,6 +206,7 @@ async def on_connect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /connect from user {u.id} (@{u.username}, lang={u.language_code})")
+    dash_stats.record_command("/connect")
 
     # Проверяем, не подключён ли уже
     if pyrogram_client.is_active(u.id):

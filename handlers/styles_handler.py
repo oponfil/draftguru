@@ -16,6 +16,7 @@ from config import (
     STYLE_OPTIONS,
     STYLE_TO_EMOJI,
 )
+from dashboard import stats as dash_stats
 from database.users import get_user, update_chat_auto_reply, update_chat_prompt, update_chat_style, update_last_msg_at
 from handlers.pyrogram_handlers import get_replied_chats
 from system_messages import get_system_message, get_system_messages
@@ -191,6 +192,7 @@ async def on_chats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] /chats from user {u.id}, {len(dialogs)} chats")
+    dash_stats.record_command("/chats")
 
 
 async def _refresh_chat_settings(
