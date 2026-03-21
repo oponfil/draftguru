@@ -353,6 +353,7 @@
         <div class="summary-item">Drafts: <strong id="sum-drafts">0</strong></div>
         <div class="summary-item">Auto-replies: <strong id="sum-autoreplies">0</strong></div>
         <div class="summary-item">Voice: <strong id="sum-voice">0</strong></div>
+        <div style="flex-basis:100%;height:0"></div>
         <div id="style-items" style="display:contents"><!-- Injected by JS --></div>
     </div>
 
@@ -373,8 +374,6 @@
         <div class="summary-item">Avg cost/req: <strong id="sum-avg-cost">—</strong></div>
         <div class="summary-item">Tokens in: <strong id="sum-tokens-in">0</strong></div>
         <div class="summary-item">Tokens out: <strong id="sum-tokens-out">0</strong></div>
-        <div class="summary-item">Errors: <strong id="sum-errors" class="color-red">0</strong></div>
-        <div class="summary-item">Warnings: <strong id="sum-warnings" class="color-yellow">0</strong></div>
     </div>
 
     <!-- Live Logs (x402gate style) -->
@@ -382,6 +381,8 @@
         <div class="section-header">
             <h3>Live Logs</h3>
             <div style="display:flex;align-items:center;gap:10px">
+                <span class="summary-item" style="font-size:0.82em">Errors: <strong id="sum-errors" class="color-red">0</strong></span>
+                <span class="summary-item" style="font-size:0.82em">Warnings: <strong id="sum-warnings" class="color-yellow">0</strong></span>
                 <div class="log-filters">
                     <button class="btn active" data-filter="ALL" onclick="setLogFilter('ALL', this)">All</button>
                     <button class="btn" data-filter="ERROR" onclick="setLogFilter('ERROR', this)">Errors</button>
