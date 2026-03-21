@@ -158,6 +158,21 @@ The dashboard runs on the same port as the bot (`$PORT`, default `8080`). If `DA
 3. Add environment variables (from `.env.example`)
 4. Railway will automatically detect the `Procfile` and start the bot
 
+## Knowledge Base (RAG)
+
+When you chat with the bot, it uses **Retrieval-Augmented Generation** to answer questions about its own features, settings, and code. The bot's codebase is indexed into a vector database (Supabase pgvector) and relevant documentation is automatically retrieved for each question.
+
+**How it works:**
+1. On each deploy, `scripts/index_knowledge.py` parses all source files using Python AST and indexes them as embeddings in Supabase.
+2. When you ask a question, the bot finds the most relevant code/documentation chunks via vector similarity search.
+3. Retrieved chunks are injected into the AI prompt as context.
+
+**Manual re-indexing:**
+
+```bash
+python scripts/index_knowledge.py
+```
+
 ## Tests
 
 ```bash

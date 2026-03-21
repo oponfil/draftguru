@@ -23,3 +23,46 @@ create index if not exists idx_users_last_msg_at on public.users(last_msg_at des
 -- Бот работает через service_role ключ — он обходит RLS.
 -- anon и authenticated ключи автоматически заблокированы.
 alter table public.users enable row level security;
+
+-- ---------- KNOWLEDGE_CHUNKS (RAG) ----------
+create extension if not exists vector;
+
+create table if not exists public.knowledge_chunks (
+  id         bigint generated always as identity primary key,
+  source     text not null,                    -- Файл-источник (README.md, config.py, ...)
+  section    text,                             -- Функция/класс/секция
+  content    text not null,                    -- Текст чанка
+  embedding  vector(1536) not null,            -- Embedding (text-embedding-3-small = 1536 dims)
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_knowledge_embedding
+  on public.knowledge_chunks
+  using ivfflat (embedding vector_cosine_ops)
+  with (lists = 20);
+
+alter table public.knowledge_chunks enable row level security;
+
+-- RPC: similarity search для RAG
+create or replace function match_knowledge_chunks(
+  query_embedding vector(1536),
+  match_count int default 5,
+  match_threshold float default 0.3
+)
+returns table (
+  id bigint,
+  source text,
+  section text,
+  content text,
+  similarity float
+)
+language sql stable
+as $$
+  select
+    id, source, section, content,
+    1 - (embedding <=> query_embedding) as similarity
+  from public.knowledge_chunks
+  where 1 - (embedding <=> query_embedding) > match_threshold
+  order by embedding <=> query_embedding
+  limit match_count;
+$$;

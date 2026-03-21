@@ -12,6 +12,7 @@ from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
 from prompts import build_bot_chat_prompt
+from logic.rag import retrieve_context
 from database.users import update_chat_prompt, update_last_msg_at, update_tg_rating, update_user_settings
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
@@ -195,6 +196,12 @@ async def _process_text(
         kwargs["reasoning_effort"] = MODEL_REASONING_EFFORT.get(effective_model, "medium")
         if model:
             kwargs["model"] = model
+
+        # RAG: подтягиваем релевантную документацию для вопросов о боте
+        rag_context = await retrieve_context(message_text)
+        if rag_context:
+            kwargs["system_prompt"] += f"\n\nRELEVANT DOCUMENTATION:\n{rag_context}"
+
         response_text = await generate_response(message_text, **kwargs)
 
         # Сохраняем в историю

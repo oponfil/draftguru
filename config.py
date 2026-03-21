@@ -158,6 +158,12 @@ STYLE_OPTIONS: dict[str, str] = {
 ACTIVE_CHATS_LIMIT = 16
 CHATS_FETCH_LIMIT = ACTIVE_CHATS_LIMIT * 10  # Запрос с запасом: группы/каналы фильтруются
 
+# ====== RAG ======
+RAG_EMBEDDING_MODEL = "openai/text-embedding-3-small"  # 1536 dims
+RAG_TOP_K = 5                  # Макс. кол-во чанков в контексте (реально может быть 0..5)
+RAG_SIMILARITY_THRESHOLD = 0.3  # Мин. cosine similarity (0..1); чанки ниже порога отбрасываются
+INDEX_BATCH_SIZE = 100            # Размер батча для embedding-запросов и INSERT в Supabase
+
 # ====== ЧАСОВОЙ ПОЯС ======
 # 30 популярных UTC-смещений (часы); дробные: +3.5 Иран, +4.5 Афганистан,
 # +5.5 Индия, +9.5 Центральная Австралия
