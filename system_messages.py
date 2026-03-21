@@ -87,7 +87,7 @@ SYSTEM_MESSAGES = {
     "draft_typing": "{emoji} is typing...",
 
     # — Settings —
-    "settings_title": "⚙️ Settings\nTap buttons to change.",
+    "settings_title": "⚙️ Settings\nApplies to all private chats by default.\nUse /chats to override per chat.\n\nTap buttons to change.",
     "settings_drafts_on": "✏️ Draft editing: ✅ ON",
     "settings_drafts_off": "✏️ Draft editing: ❌ OFF",
     "settings_model_free": "🤖 Model: FREE",
