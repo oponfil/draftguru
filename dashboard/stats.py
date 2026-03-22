@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-MAX_LOG_ENTRIES = 1000  # Размер rolling log buffer
+MAX_LOG_ENTRIES = 5000  # Размер rolling log buffer
 
 
 @dataclass
