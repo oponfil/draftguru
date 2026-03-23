@@ -5,8 +5,8 @@
 по естественным границам (функции, классы, секции) и загружает embeddings
 в таблицу knowledge_chunks.
 
-Идемпотентный: при каждом запуске полностью пересоздаёт базу знаний
-(TRUNCATE + INSERT).
+Инкрементальный: сравнивает SHA-256 хэши контента с БД и пересчитывает
+embeddings только для изменённых чанков.
 
 Запуск:
     python scripts/index_knowledge.py
@@ -14,6 +14,7 @@
 
 import ast
 import asyncio
+import hashlib
 import os
 import re
 import sys
@@ -26,7 +27,7 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from clients.x402gate.openrouter_embeddings import get_embeddings  # noqa: E402 — import after sys.path
 from config import INDEX_BATCH_SIZE  # noqa: E402 — import after sys.path
-from database.knowledge import replace_all_chunks  # noqa: E402 — import after sys.path
+from database.knowledge import get_existing_hashes, sync_chunks  # noqa: E402 — import after sys.path
 from utils.utils import get_timestamp  # noqa: E402 — import after sys.path
 
 # Директории и файлы для индексации (относительно PROJECT_ROOT)
@@ -184,6 +185,8 @@ def chunk_markdown(filepath: str) -> list[dict]:
     chunks: list[dict] = []
     current_section = None
     current_lines: list[str] = []
+    # Счётчик дубликатов заголовков: гарантирует уникальность ключа (source, section)
+    section_counts: dict[str, int] = {}
 
     for line in content.splitlines():
         # Проверяем на заголовок H1/H2/H3
@@ -195,7 +198,12 @@ def chunk_markdown(filepath: str) -> list[dict]:
                 if text:
                     chunks.append({"source": rel_path, "section": current_section, "content": text})
 
-            current_section = header_match.group(2).strip()
+            section_name = header_match.group(2).strip()
+            section_counts[section_name] = section_counts.get(section_name, 0) + 1
+            if section_counts[section_name] > 1:
+                current_section = f"{section_name} ({section_counts[section_name]})"
+            else:
+                current_section = section_name
             current_lines = [line]
         else:
             current_lines.append(line)
@@ -243,18 +251,25 @@ def chunk_file(filepath: str) -> list[dict]:
         return []
 
 
+def compute_content_hash(content: str) -> str:
+    """Вычисляет SHA-256 хэш контента чанка."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
 async def main() -> None:
-    """Главная функция индексации."""
+    """Главная функция индексации (инкрементальная)."""
     start_time = time.time()
 
     # 1. Собираем файлы
     files = collect_files()
     print(f"{get_timestamp()} [INDEX] Found {len(files)} files to process")
 
-    # 2. Нарезаем на чанки
+    # 2. Нарезаем на чанки и считаем хэши
     all_chunks: list[dict] = []
     for filepath in files:
         chunks = chunk_file(filepath)
+        for chunk in chunks:
+            chunk["content_hash"] = compute_content_hash(chunk["content"])
         all_chunks.extend(chunks)
 
     print(f"{get_timestamp()} [INDEX] Created {len(all_chunks)} chunks")
@@ -263,36 +278,61 @@ async def main() -> None:
         print(f"{get_timestamp()} [INDEX] No chunks to index, exiting")
         return
 
-    # 3. Генерируем embeddings батчами
-    texts = [c["content"] for c in all_chunks]
-    all_embeddings: list[list[float]] = []
+    # 3. Загружаем существующие хэши из БД и вычисляем дельту
+    existing_hashes = await get_existing_hashes()
+    changed_chunks: list[dict] = []
 
-    batches = [texts[i:i + INDEX_BATCH_SIZE] for i in range(0, len(texts), INDEX_BATCH_SIZE)]
-    print(f"{get_timestamp()} [INDEX] Generating embeddings ({len(batches)} batch(es))...")
+    for chunk in all_chunks:
+        key = (chunk["source"], chunk["section"])
+        old_hash = existing_hashes.get(key)
+        if old_hash != chunk["content_hash"]:
+            changed_chunks.append(chunk)
 
-    for i, batch in enumerate(batches):
-        embeddings = await get_embeddings(batch)
-        all_embeddings.extend(embeddings)
-        if len(batches) > 1:
-            print(f"{get_timestamp()} [INDEX]   Batch {i + 1}/{len(batches)}: {len(batch)} embeddings")
+    all_keys = {(c["source"], c["section"]) for c in all_chunks}
+    stale_count = len(set(existing_hashes.keys()) - all_keys)
 
-    # 4. Очищаем таблицу и загружаем новые данные
-    print(f"{get_timestamp()} [INDEX] Uploading to Supabase...")
+    print(
+        f"{get_timestamp()} [INDEX] Delta: "
+        f"{len(changed_chunks)} changed, "
+        f"{len(all_chunks) - len(changed_chunks)} unchanged, "
+        f"{stale_count} stale"
+    )
 
-    rows = [
-        {
-            "source": chunk["source"],
-            "section": chunk["section"],
-            "content": chunk["content"],
-            "embedding": embedding,
-        }
-        for chunk, embedding in zip(all_chunks, all_embeddings)
-    ]
+    # 4. Генерируем embeddings ТОЛЬКО для изменённых чанков
+    if changed_chunks:
+        texts = [c["content"] for c in changed_chunks]
+        all_embeddings: list[list[float]] = []
 
-    await replace_all_chunks(rows)
+        batches = [texts[i:i + INDEX_BATCH_SIZE] for i in range(0, len(texts), INDEX_BATCH_SIZE)]
+        print(f"{get_timestamp()} [INDEX] Generating embeddings ({len(batches)} batch(es))...")
+
+        for i, batch in enumerate(batches):
+            embeddings = await get_embeddings(batch)
+            all_embeddings.extend(embeddings)
+            if len(batches) > 1:
+                print(f"{get_timestamp()} [INDEX]   Batch {i + 1}/{len(batches)}: {len(batch)} embeddings")
+
+        new_rows = [
+            {
+                "source": chunk["source"],
+                "section": chunk["section"],
+                "content": chunk["content"],
+                "content_hash": chunk["content_hash"],
+                "embedding": embedding,
+            }
+            for chunk, embedding in zip(changed_chunks, all_embeddings)
+        ]
+    else:
+        new_rows = []
+
+    # 5. Синхронизируем с БД (INSERT изменённых, DELETE устаревших)
+    added, deleted, unchanged = await sync_chunks(new_rows, all_keys)
 
     duration = time.time() - start_time
-    print(f"{get_timestamp()} [INDEX] ✅ Done: {len(all_chunks)} chunks indexed in {duration:.1f}s")
+    print(
+        f"{get_timestamp()} [INDEX] ✅ Done in {duration:.1f}s: "
+        f"{added} added, {deleted} deleted, {unchanged} unchanged"
+    )
 
 
 if __name__ == "__main__":

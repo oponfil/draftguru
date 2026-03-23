@@ -30,12 +30,13 @@ alter table public.users enable row level security;
 create extension if not exists vector;
 
 create table if not exists public.knowledge_chunks (
-  id         bigint generated always as identity primary key,
-  source     text not null,                    -- Файл-источник (README.md, config.py, ...)
-  section    text,                             -- Функция/класс/секция
-  content    text not null,                    -- Текст чанка
-  embedding  vector(1536) not null,            -- Embedding (text-embedding-3-small = 1536 dims)
-  created_at timestamptz default now()
+  id           bigint generated always as identity primary key,
+  source       text not null,                    -- Файл-источник (README.md, config.py, ...)
+  section      text,                             -- Функция/класс/секция
+  content      text not null,                    -- Текст чанка
+  content_hash text not null,                    -- SHA-256 хэш контента
+  embedding    vector(1536) not null,            -- Embedding (text-embedding-3-small = 1536 dims)
+  created_at   timestamptz default now()
 );
 
 create index if not exists idx_knowledge_embedding

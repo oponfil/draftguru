@@ -160,12 +160,12 @@ The dashboard runs on the same port as the bot (`$PORT`, default `8080`). If `DA
 
 ## Knowledge Base (RAG)
 
-When you chat with the bot, it uses **Retrieval-Augmented Generation** to answer questions about its own features, settings, and code. The bot's codebase is indexed into a vector database (Supabase pgvector) and relevant documentation is automatically retrieved for each question.
+The bot can answer questions about its own functionality, settings, and source code. It uses **Retrieval-Augmented Generation** — the codebase is indexed into a vector database (Supabase pgvector) and relevant fragments are automatically retrieved for each question.
 
 **How it works:**
-1. On each deploy, `scripts/index_knowledge.py` parses all source files using Python AST and indexes them as embeddings in Supabase.
-2. When you ask a question, the bot finds the most relevant code/documentation chunks via vector similarity search.
-3. Retrieved chunks are injected into the AI prompt as context.
+1. On each deploy, `scripts/index_knowledge.py` parses source files (Python AST, Markdown headers, SQL) and stores embeddings in Supabase.
+2. Indexing is **incremental**: content is hashed (SHA-256) and only changed chunks are re-embedded, saving API costs.
+3. When you ask a question, the bot finds the most relevant chunks via vector similarity search and injects them into the AI prompt.
 
 **Manual re-indexing:**
 

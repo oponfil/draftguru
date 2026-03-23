@@ -265,19 +265,114 @@ class TestPromptRagInstruction:
 # ====== database/knowledge.py ======
 
 
-class TestReplaceAllChunks:
-    """Тесты для replace_all_chunks (TRUNCATE + INSERT)."""
+class TestGetExistingHashes:
+    """Тесты для get_existing_hashes."""
 
     @pytest.mark.asyncio
-    async def test_replace_all_chunks_calls_delete_and_insert(self):
-        """replace_all_chunks() делает DELETE + INSERT."""
+    async def test_returns_hash_dict(self):
+        """get_existing_hashes() возвращает словарь {(source, section): hash}."""
+        from unittest.mock import MagicMock
+
+        fake_data = [
+            {"source": "config.py", "section": "LLM", "content_hash": "abc123"},
+            {"source": "bot.py", "section": None, "content_hash": "def456"},
+        ]
+
+        mock_result = MagicMock()
+        mock_result.data = fake_data
+
+        async def fake_run_supabase(fn):
+            return fn()
+
+        with patch("database.knowledge.supabase") as mock_sb, \
+             patch("database.knowledge.run_supabase", side_effect=fake_run_supabase):
+            mock_table = MagicMock()
+            mock_sb.table.return_value = mock_table
+            mock_table.select.return_value = mock_table
+            mock_table.execute.return_value = mock_result
+
+            from database.knowledge import get_existing_hashes
+            result = await get_existing_hashes()
+
+        assert result == {
+            ("config.py", "LLM"): "abc123",
+            ("bot.py", None): "def456",
+        }
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_dict_when_no_data(self):
+        """get_existing_hashes() возвращает пустой словарь при пустой таблице."""
+        from unittest.mock import MagicMock
+
+        mock_result = MagicMock()
+        mock_result.data = []
+
+        async def fake_run_supabase(fn):
+            return fn()
+
+        with patch("database.knowledge.supabase") as mock_sb, \
+             patch("database.knowledge.run_supabase", side_effect=fake_run_supabase):
+            mock_table = MagicMock()
+            mock_sb.table.return_value = mock_table
+            mock_table.select.return_value = mock_table
+            mock_table.execute.return_value = mock_result
+
+            from database.knowledge import get_existing_hashes
+            result = await get_existing_hashes()
+
+        assert result == {}
+
+
+class TestSyncChunks:
+    """Тесты для sync_chunks (инкрементальная синхронизация)."""
+
+    @pytest.mark.asyncio
+    async def test_inserts_new_chunks(self):
+        """sync_chunks() вставляет новые чанки и возвращает статистику."""
         from unittest.mock import MagicMock
 
         rows = [
-            {"source": "config.py", "section": "LLM", "content": "LLM_MODEL = 'gemini'", "embedding": [0.1] * 10},
+            {"source": "config.py", "section": "LLM", "content": "X", "content_hash": "h1", "embedding": [0.1] * 10},
+        ]
+        all_keys = {("config.py", "LLM")}
+
+        mock_table = MagicMock()
+
+        # get_existing_hashes вернёт пустой результат (нет существующих чанков)
+        mock_select_result = MagicMock()
+        mock_select_result.data = []
+
+        call_count = {"n": 0}
+
+        async def fake_run_supabase(fn):
+            call_count["n"] += 1
+            return fn()
+
+        with patch("database.knowledge.supabase") as mock_sb, \
+             patch("database.knowledge.run_supabase", side_effect=fake_run_supabase):
+            mock_sb.table.return_value = mock_table
+            mock_table.select.return_value = mock_table
+            mock_table.execute.return_value = mock_select_result
+
+            from database.knowledge import sync_chunks
+            added, deleted, unchanged = await sync_chunks(rows, all_keys)
+
+        assert added == 1
+        assert deleted == 0
+        assert unchanged == 0
+        mock_table.insert.assert_called_once_with(rows)
+
+    @pytest.mark.asyncio
+    async def test_deletes_stale_chunks(self):
+        """sync_chunks() удаляет устаревшие чанки, которых нет в текущей кодовой базе."""
+        from unittest.mock import MagicMock
+
+        # В БД есть чанк old.py, но в текущих чанках его нет
+        mock_select_result = MagicMock()
+        mock_select_result.data = [
+            {"source": "old.py", "section": "func", "content_hash": "old_hash"},
         ]
 
-        # Supabase builder chain (table/delete/neq/insert/execute) — синхронный
         mock_table = MagicMock()
 
         async def fake_run_supabase(fn):
@@ -286,10 +381,65 @@ class TestReplaceAllChunks:
         with patch("database.knowledge.supabase") as mock_sb, \
              patch("database.knowledge.run_supabase", side_effect=fake_run_supabase):
             mock_sb.table.return_value = mock_table
+            mock_table.select.return_value = mock_table
+            mock_table.execute.return_value = mock_select_result
 
-            from database.knowledge import replace_all_chunks
-            await replace_all_chunks(rows)
+            from database.knowledge import sync_chunks
+            added, deleted, unchanged = await sync_chunks([], set())
 
-        # DELETE вызван 1 раз, INSERT вызван 1 раз (1 батч)
-        mock_table.delete.assert_called_once()
-        mock_table.insert.assert_called_once_with(rows)
+        assert deleted == 1
+        assert added == 0
+        mock_table.delete.assert_called()
+
+
+class TestComputeContentHash:
+    """Тесты для compute_content_hash."""
+
+    def test_returns_stable_hash(self):
+        """compute_content_hash() возвращает стабильный SHA-256 хэш."""
+        from scripts.index_knowledge import compute_content_hash
+        h1 = compute_content_hash("hello world")
+        h2 = compute_content_hash("hello world")
+        assert h1 == h2
+        assert len(h1) == 64  # SHA-256 hex digest
+
+    def test_different_content_different_hash(self):
+        """Разный контент → разный хэш."""
+        from scripts.index_knowledge import compute_content_hash
+        h1 = compute_content_hash("hello")
+        h2 = compute_content_hash("world")
+        assert h1 != h2
+
+
+class TestChunkMarkdownDedup:
+    """Тесты для дедупликации заголовков в chunk_markdown."""
+
+    def test_duplicate_headers_get_ordinal(self, tmp_path):
+        """Два одинаковых заголовка → уникальные section с суффиксом (2)."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text(
+            "## Foo\nContent A\n## Foo\nContent B\n## Foo\nContent C\n",
+            encoding="utf-8",
+        )
+
+        from scripts.index_knowledge import chunk_markdown
+        with patch("scripts.index_knowledge.PROJECT_ROOT", str(tmp_path)):
+            chunks = chunk_markdown(str(md_file))
+
+        sections = [c["section"] for c in chunks]
+        assert sections == ["Foo", "Foo (2)", "Foo (3)"]
+
+    def test_unique_headers_no_ordinal(self, tmp_path):
+        """Уникальные заголовки → section без суффиксов."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text(
+            "## Alpha\nContent A\n## Beta\nContent B\n",
+            encoding="utf-8",
+        )
+
+        from scripts.index_knowledge import chunk_markdown
+        with patch("scripts.index_knowledge.PROJECT_ROOT", str(tmp_path)):
+            chunks = chunk_markdown(str(md_file))
+
+        sections = [c["section"] for c in chunks]
+        assert sections == ["Alpha", "Beta"]

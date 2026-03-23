@@ -51,10 +51,12 @@ async def retrieve_context(question: str) -> str:
 
         context = "\n\n".join(formatted_parts)
 
+        # Логируем query для отладки: позволяет сопоставить вопрос с найденными чанками
         if DEBUG_PRINT:
             print(
                 f"{get_timestamp()} [RAG] Found {len(chunks)} chunk(s), "
-                f"best similarity: {chunks[0].get('similarity', 0):.2f}"
+                f"best similarity: {chunks[0].get('similarity', 0):.2f} "
+                f"| query: {question!r}"
             )
 
         return context
