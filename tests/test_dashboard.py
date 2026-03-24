@@ -135,12 +135,29 @@ class TestDashboardStats:
         assert "errors" in snapshot
 
     def test_get_stats_balance_spent(self) -> None:
-        """balance_spent = initial - last."""
+        """balance_spent = initial + topup_total - last."""
         stats.update_balance(10.0)
         stats.update_balance(7.5)
 
         snapshot = stats.get_stats()
         assert snapshot["balance_spent"] == 2.5
+
+    def test_record_topup(self) -> None:
+        """record_topup записывает точную сумму пополнения."""
+        stats.record_topup(0.5)
+        stats.record_topup(0.5)
+        stats.record_topup(0.5)
+
+        assert stats._stats.topup_count == 3
+        assert stats._stats.topup_total == 1.5
+
+    def test_update_balance_ignores_increase(self) -> None:
+        """update_balance не считает рост баланса как topup — это делает record_topup."""
+        stats.update_balance(1.0)
+        stats.update_balance(5.0)  # баланс вырос, но topup не записан
+
+        assert stats._stats.topup_count == 0
+        assert stats._stats.topup_total == 0.0
 
     def test_get_stats_no_balance(self) -> None:
         """balance_spent = None если баланс не обновлялся."""

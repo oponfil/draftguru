@@ -25,6 +25,11 @@ from utils.utils import get_timestamp
 LOG_DIR = "logs"
 
 
+class ContentFilterError(RuntimeError):
+    """Контентный фильтр модели. Ретрай бесполезен — тот же контент будет заблокирован."""
+    pass
+
+
 def _log_to_file(
     payload: dict, response_text: str, model: str, duration: float, usage: dict, reasoning_text: str = "",
 ) -> None:
@@ -116,6 +121,15 @@ async def generate_response(
             message_data = choice["message"]
             text = message_data.get("content", "")
 
+            # Проверяем finish_reason ДО проверки пустого текста:
+            # типичный content_filter ответ — пустой content + finish_reason=content_filter.
+            # Если проверять пустоту первой, ContentFilterError никогда не сработает.
+            finish_reason = choice.get("finish_reason", "")
+            if finish_reason == "content_filter":
+                raise ContentFilterError(
+                    f"Content blocked by model safety filter (finish_reason={finish_reason})"
+                )
+
             if not text or not text.strip():
                 raise RuntimeError("OpenRouter API returned empty response content")
 
@@ -160,6 +174,11 @@ async def generate_response(
                 print(f"{get_timestamp()} [OPENROUTER] Non-retriable error: {e}")
                 break
 
+            # ContentFilterError — ретрай бесполезен, тот же контент будет заблокирован
+            if isinstance(e, ContentFilterError):
+                print(f"{get_timestamp()} [OPENROUTER] Content filter — not retrying: {e}")
+                break
+
             if isinstance(e, RuntimeError) and "empty response" in str(e).lower():
                 print(f"{get_timestamp()} [OPENROUTER] Invalid model response — not retrying: {e}")
                 break
@@ -167,12 +186,12 @@ async def generate_response(
             if attempt < RETRY_ATTEMPTS:
                 delay = RETRY_DELAY * (RETRY_EXPONENTIAL_BASE ** attempt)
                 if DEBUG_PRINT:
-                    print(f"{get_timestamp()} [OPENROUTER] Error: {e}")
+                    print(f"{get_timestamp()} [OPENROUTER] Error: {e!r}")
                     print(f"{get_timestamp()} [OPENROUTER] Retry {attempt + 1}/{RETRY_ATTEMPTS} after {delay:.1f}s...")
                 await asyncio.sleep(delay)
                 continue
             else:
-                print(f"{get_timestamp()} [OPENROUTER] Failed after {RETRY_ATTEMPTS} retries: {e}")
+                print(f"{get_timestamp()} [OPENROUTER] Failed after {RETRY_ATTEMPTS} retries: {e!r}")
                 break
 
     if last_error:

@@ -79,7 +79,6 @@ def _build_styles_keyboard(
     chat_styles = user_settings.get("chat_styles") or {}
     chat_prompts = user_settings.get("chat_prompts") or {}
     chat_auto_replies = user_settings.get("chat_auto_replies") or {}
-    global_style = user_settings.get("style") or DEFAULT_STYLE
 
     keyboard = []
     if visible_count is None:
@@ -89,9 +88,9 @@ def _build_styles_keyboard(
         chat_id = d["chat_id"]
         name = _chat_display_name(d)
 
-        # Emoji-индикаторы
-        style = chat_styles.get(str(chat_id)) or global_style
-        icons = _style_emoji(style)
+        # Emoji-индикаторы: показываем стиль только если задан per-chat override
+        per_chat_style = chat_styles.get(str(chat_id))
+        icons = _style_emoji(per_chat_style) if per_chat_style else ""
         if chat_prompts.get(str(chat_id)):
             icons += "📝"
 
@@ -103,7 +102,7 @@ def _build_styles_keyboard(
         elif ar_override and ar_override > 0:
             icons += "⏰"
 
-        label = f"{icons} | {name}"
+        label = f"{icons} | {name}" if icons else name
         btn = InlineKeyboardButton(label, callback_data=f"chatmenu:{chat_id}")
         keyboard.append([btn])
 
@@ -125,12 +124,13 @@ def _build_chat_settings_keyboard(
     chat_styles = user_settings.get("chat_styles") or {}
     chat_prompts = user_settings.get("chat_prompts") or {}
 
-    # Стиль
-    style = chat_styles.get(str(chat_id))
-    if style is None:
-        style = global_style or DEFAULT_STYLE
-    style_msg_key = STYLE_OPTIONS.get(style, "settings_style_userlike")
-    style_label = messages.get(style_msg_key, f"{_style_emoji(style)} Style: {style}")
+    # Стиль: показываем конкретный стиль только если задан per-chat override
+    per_chat_style = chat_styles.get(str(chat_id))
+    if per_chat_style:
+        style_msg_key = STYLE_OPTIONS.get(per_chat_style, "settings_style_userlike")
+        style_label = messages.get(style_msg_key, f"{_style_emoji(per_chat_style)} Style: {per_chat_style}")
+    else:
+        style_label = messages.get("settings_style_default", "🎭 Style")
 
     # Промпт
     has_prompt = bool(chat_prompts.get(str(chat_id)))

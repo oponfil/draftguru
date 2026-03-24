@@ -1,5 +1,6 @@
 # tests/test_pyrogram_client.py — Тесты для clients/pyrogram_client.py
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -533,6 +534,87 @@ class TestTranscribeVoice:
 
         pyrogram_client._active_clients.pop(123, None)
 
+
+class TestTranscriptionLock:
+    """Тесты для per-user lock транскрипции (_transcription_locks)."""
+
+    def teardown_method(self):
+        pyrogram_client._transcription_cache.clear()
+        pyrogram_client._transcription_locks.clear()
+        pyrogram_client._active_clients.pop(300, None)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_chats_serialize_transcription(self):
+        """Параллельные read_chat_history для разных чатов одного пользователя
+        сериализуют вызовы transcribe_voice через per-user lock."""
+        mock_client = AsyncMock()
+
+        def make_voice_msg(msg_id, sender_id):
+            msg = MagicMock()
+            msg.text = None
+            msg.sticker = None
+            msg.voice = MagicMock()
+            msg.id = msg_id
+            msg.from_user = MagicMock()
+            msg.from_user.id = sender_id
+            return msg
+
+        # Чат A: 1 голосовое, Чат B: 1 голосовое
+        msg_a = make_voice_msg(10, 400)
+        msg_b = make_voice_msg(20, 500)
+
+        def mock_get_history_factory(chat_msgs):
+            async def mock_get_history(*args, **kwargs):
+                for m in chat_msgs:
+                    yield m
+            return mock_get_history
+
+        # Timeline записывает enter/exit моменты
+        timeline = []
+        active_count = 0
+
+        async def tracking_transcribe(uid, cid, mid):
+            nonlocal active_count
+            active_count += 1
+            timeline.append(("enter", cid, mid, active_count))
+            # Имитируем задержку API
+            await asyncio.sleep(0.05)
+            active_count -= 1
+            timeline.append(("exit", cid, mid, active_count))
+            return f"text_{mid}"
+
+        pyrogram_client._active_clients[300] = mock_client
+
+        with patch.object(pyrogram_client, "transcribe_voice", side_effect=tracking_transcribe):
+            # Подменяем get_chat_history для каждого чата
+            call_count = 0
+
+            def switching_history(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    return mock_get_history_factory([msg_a])(*args, **kwargs)
+                return mock_get_history_factory([msg_b])(*args, **kwargs)
+
+            mock_client.get_chat_history = switching_history
+
+            # Запускаем параллельно для двух разных чатов
+            results = await asyncio.gather(
+                pyrogram_client.read_chat_history(300, 400, limit=5),
+                pyrogram_client.read_chat_history(300, 500, limit=5),
+            )
+
+        # Оба чата должны вернуть транскрибированный текст
+        assert results[0][0]["text"] == "text_10"
+        assert results[1][0]["text"] == "text_20"
+
+        # Главная проверка: active_count никогда не превышал 1
+        # (т.е. вызовы не перекрывались)
+        max_concurrent = max(event[3] for event in timeline if event[0] == "enter")
+        assert max_concurrent == 1, (
+            f"Ожидалась сериализация (max_concurrent=1), "
+            f"но было {max_concurrent}. Timeline: {timeline}"
+        )
 
 class TestSendMessage:
     """Тесты для send_message()."""

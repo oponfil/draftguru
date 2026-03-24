@@ -205,7 +205,7 @@ def is_active(user_id: int) -> bool:
 async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> list[dict]:
     """Читает последние сообщения из чата пользователя.
 
-    Голосовые сообщения транскрибируются параллельно через transcribe_voice().
+    Голосовые сообщения транскрибируются через per-user lock (один запрос за раз).
     Если транскрипция не удалась — подставляется '[voice message]'.
 
     Args:
@@ -261,15 +261,17 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
                 voice_indices.append(idx)
                 voice_msg_ids.append(msg.id)
 
-        # Транскрибируем голосовые последовательно (параллельные вызовы
-        # вызывают FLOOD_WAIT от Telegram). Кэш в transcribe_voice()
-        # гарантирует, что повторные вызовы не обращаются к API.
+        # Транскрибируем голосовые через per-user lock, чтобы
+        # параллельные read_chat_history для разных чатов одного
+        # пользователя не вызывали FLOOD_WAIT от Telegram.
         if voice_indices:
             ok_count = 0
+            lock = _transcription_locks[user_id]
             for i, (idx, mid) in enumerate(zip(voice_indices, voice_msg_ids)):
-                if i > 0:
-                    await asyncio.sleep(VOICE_TRANSCRIPTION_DELAY)
-                transcription = await transcribe_voice(user_id, chat_id, mid)
+                async with lock:
+                    if i > 0:
+                        await asyncio.sleep(VOICE_TRANSCRIPTION_DELAY)
+                    transcription = await transcribe_voice(user_id, chat_id, mid)
                 messages[idx]["text"] = transcription or "[voice message]"
                 if transcription:
                     ok_count += 1
@@ -614,6 +616,12 @@ async def send_message(user_id: int, chat_id: int, text: str) -> bool:
     except Exception as e:
         print(f"{get_timestamp()} [PYROGRAM] ERROR sending message in chat {chat_id}: {e}")
         return False
+
+# Per-user lock для транскрипции: гарантирует, что для одного аккаунта
+# одновременно выполняется только один TranscribeAudio запрос.
+# Без этого параллельные read_chat_history для разных чатов одного
+# пользователя вызывают FLOOD_WAIT от Telegram.
+_transcription_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 # Кэш транскрипций: {user_id: {(chat_id, msg_id): text_or_None}}
 # Предотвращает повторные API-вызовы для одних и тех же голосовых.

@@ -95,6 +95,54 @@ class TestGenerateResponse:
         assert mock_client.request.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_content_filter_not_retried(self):
+        """finish_reason=content_filter → ContentFilterError без ретраев."""
+        from clients.x402gate.openrouter import ContentFilterError
+
+        mock_result = {
+            "data": {
+                "choices": [{
+                    "message": {"content": "Some text"},
+                    "finish_reason": "content_filter",
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+        }
+
+        with patch("clients.x402gate.openrouter.x402gate_client") as mock_client:
+            mock_client.available = True
+            mock_client.request = AsyncMock(return_value=mock_result)
+
+            with pytest.raises(ContentFilterError, match="content_filter"):
+                await generate_response("Hi")
+
+        assert mock_client.request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_content_filter_with_empty_content(self):
+        """finish_reason=content_filter с пустым content (типичный случай) → ContentFilterError."""
+        from clients.x402gate.openrouter import ContentFilterError
+
+        mock_result = {
+            "data": {
+                "choices": [{
+                    "message": {"content": ""},
+                    "finish_reason": "content_filter",
+                }],
+                "usage": {},
+            }
+        }
+
+        with patch("clients.x402gate.openrouter.x402gate_client") as mock_client:
+            mock_client.available = True
+            mock_client.request = AsyncMock(return_value=mock_result)
+
+            with pytest.raises(ContentFilterError, match="content_filter"):
+                await generate_response("Hi")
+
+        assert mock_client.request.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_empty_response_not_retried(self):
         mock_result = {"data": {"choices": [{"message": {"content": ""}}]}}
 

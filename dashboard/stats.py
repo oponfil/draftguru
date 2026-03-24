@@ -169,21 +169,22 @@ def record_command(command: str) -> None:
 def update_balance(balance: float) -> None:
     """Обновляет кэшированный prepaid-баланс x402gate.
 
-    Если баланс вырос — фиксирует пополнение.
     Если упал — сохраняет стоимость запроса для привязки к модели.
+    Пополнения фиксируются явно через record_topup().
     """
     global _last_request_cost
     _last_request_cost = 0.0
     if _stats.initial_balance is None:
         _stats.initial_balance = balance
-    elif _stats.last_balance is not None:
-        if balance > _stats.last_balance:
-            topup_amount = balance - _stats.last_balance
-            _stats.topup_count += 1
-            _stats.topup_total += topup_amount
-        elif balance < _stats.last_balance:
-            _last_request_cost = _stats.last_balance - balance
+    elif _stats.last_balance is not None and balance < _stats.last_balance:
+        _last_request_cost = _stats.last_balance - balance
     _stats.last_balance = balance
+
+
+def record_topup(amount: float) -> None:
+    """Фиксирует пополнение prepaid-баланса на указанную сумму."""
+    _stats.topup_count += 1
+    _stats.topup_total += amount
 
 
 def update_wallet_balance(balance: float) -> None:

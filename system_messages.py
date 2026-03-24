@@ -113,6 +113,7 @@ SYSTEM_MESSAGES = {
         f"settings_style_{style or 'userlike'}": f"{emoji} Style: {style_display_name(style)}"
         for emoji, style in EMOJI_TO_STYLE.items()
     },
+    "settings_style_default": "🎭 Style",
 
     # — Chats (per-chat settings) —
     "menu_chats": "Chat settings",

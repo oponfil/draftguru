@@ -261,8 +261,8 @@ class TestStylesHelpers:
         # Алиса: romance + prompt + auto-reply
         assert buttons[0][0].text == "💕📝⏰ | Алиса"
         assert buttons[0][0].callback_data == "chatmenu:100"
-        # Боб: дефолтный стиль, без промпта, без auto-reply
-        assert buttons[1][0].text == "🦉 | Боб"
+        # Боб: дефолтный стиль (без per-chat override), без промпта, без auto-reply
+        assert buttons[1][0].text == "Боб"
         assert buttons[1][0].callback_data == "chatmenu:200"
 
     def test_build_styles_keyboard_ignore_indicator(self):
