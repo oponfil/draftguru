@@ -45,6 +45,7 @@ from handlers.styles_handler import (  # noqa: E402
     on_follow_up_callback,
 )
 from utils.pyrogram_utils import restore_sessions  # noqa: E402
+from scripts.index_knowledge import main as index_knowledge  # noqa: E402
 
 PRIVATE_ONLY_FILTER = filters.ChatType.PRIVATE
 
@@ -146,9 +147,12 @@ async def post_init(app: Application) -> None:
     await restore_sessions(app)
 
     # Запускаем фоновый polling пропущенных сообщений
-    global _poll_task, _follow_up_task
+    global _poll_task, _follow_up_task, _index_task
     _poll_task = asyncio.create_task(_poll_missed_loop())
     _follow_up_task = asyncio.create_task(_poll_follow_ups_loop())
+
+    # Индексация knowledge-базы (в фоне, чтобы не задерживать старт)
+    _index_task = asyncio.create_task(_run_index_knowledge())
 
     # Запускаем dashboard HTTP-сервер (необязательная подсистема)
     global _dashboard_runner
@@ -162,6 +166,7 @@ async def post_init(app: Application) -> None:
 
 _poll_task: asyncio.Task | None = None
 _follow_up_task: asyncio.Task | None = None
+_index_task: asyncio.Task | None = None
 _dashboard_runner = None
 
 
@@ -194,6 +199,14 @@ async def _poll_follow_ups_loop() -> None:
         except Exception as e:
             print(f"{get_timestamp()} [FOLLOW-UP] ERROR: {e}")
         await asyncio.sleep(poll_interval)
+
+
+async def _run_index_knowledge() -> None:
+    """Запускает индексацию knowledge-базы в фоне при старте бота."""
+    try:
+        await index_knowledge()
+    except Exception as e:
+        print(f"{get_timestamp()} [INDEX] ❌ Knowledge indexing failed: {e}")
 
 
 if __name__ == "__main__":

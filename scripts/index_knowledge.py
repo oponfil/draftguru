@@ -307,10 +307,18 @@ async def main() -> None:
         print(f"{get_timestamp()} [INDEX] Generating embeddings ({len(batches)} batch(es))...")
 
         for i, batch in enumerate(batches):
-            embeddings = await get_embeddings(batch)
-            all_embeddings.extend(embeddings)
-            if len(batches) > 1:
-                print(f"{get_timestamp()} [INDEX]   Batch {i + 1}/{len(batches)}: {len(batch)} embeddings")
+            try:
+                embeddings = await get_embeddings(batch)
+                all_embeddings.extend(embeddings)
+                if len(batches) > 1:
+                    print(f"{get_timestamp()} [INDEX]   Batch {i + 1}/{len(batches)}: {len(batch)} embeddings")
+            except Exception as e:
+                print(f"{get_timestamp()} [INDEX] ❌ Failed to get embeddings: {e}")
+                print(f"{get_timestamp()} [INDEX] Skipping remaining batches so the build can proceed.")
+                break
+                
+        # Оставляем только те чанки, для которых удалось получить embeddings
+        changed_chunks = changed_chunks[:len(all_embeddings)]
 
         new_rows = [
             {
