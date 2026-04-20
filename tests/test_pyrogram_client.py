@@ -238,20 +238,26 @@ class TestReadChatHistory:
 
         msg1 = MagicMock()
         msg1.text = "Привет"
+        msg1.caption = None
         msg1.voice = None
+        msg1.photo = None
         msg1.from_user = MagicMock()
         msg1.from_user.id = 300  # Это пользователь
 
         msg2 = MagicMock()
         msg2.text = "Ответ"
+        msg2.caption = None
         msg2.voice = None
+        msg2.photo = None
         msg2.from_user = MagicMock()
         msg2.from_user.id = 400  # Это собеседник
 
         msg3 = MagicMock()
         msg3.text = None  # Без текста — пропускается
+        msg3.caption = None
         msg3.sticker = None  # И не стикер
         msg3.voice = None   # И не голосовое
+        msg3.photo = None
 
         async def mock_get_history(*args, **kwargs):
             for m in [msg1, msg2, msg3]:
@@ -277,12 +283,16 @@ class TestReadChatHistory:
 
         msg_text = MagicMock()
         msg_text.text = "Привет"
+        msg_text.caption = None
         msg_text.sticker = None
+        msg_text.photo = None
         msg_text.from_user = MagicMock()
         msg_text.from_user.id = 300
 
         msg_sticker = MagicMock()
         msg_sticker.text = None
+        msg_sticker.caption = None
+        msg_sticker.photo = None
         msg_sticker.sticker = MagicMock()
         msg_sticker.sticker.emoji = "😂"
         msg_sticker.from_user = MagicMock()
@@ -290,6 +300,8 @@ class TestReadChatHistory:
 
         msg_sticker_no_emoji = MagicMock()
         msg_sticker_no_emoji.text = None
+        msg_sticker_no_emoji.caption = None
+        msg_sticker_no_emoji.photo = None
         msg_sticker_no_emoji.sticker = MagicMock()
         msg_sticker_no_emoji.sticker.emoji = None  # Без эмодзи → STICKER_FALLBACK_EMOJI
         msg_sticker_no_emoji.from_user = MagicMock()
@@ -319,23 +331,29 @@ class TestReadChatHistory:
 
         msg_text = MagicMock()
         msg_text.text = "Привет"
+        msg_text.caption = None
         msg_text.sticker = None
         msg_text.voice = None
+        msg_text.photo = None
         msg_text.from_user = MagicMock()
         msg_text.from_user.id = 400  # оппонент
 
         msg_voice_other = MagicMock()
         msg_voice_other.text = None
+        msg_voice_other.caption = None
         msg_voice_other.sticker = None
         msg_voice_other.voice = MagicMock()
+        msg_voice_other.photo = None
         msg_voice_other.id = 10
         msg_voice_other.from_user = MagicMock()
         msg_voice_other.from_user.id = 400  # оппонент
 
         msg_voice_user = MagicMock()
         msg_voice_user.text = None
+        msg_voice_user.caption = None
         msg_voice_user.sticker = None
         msg_voice_user.voice = MagicMock()
+        msg_voice_user.photo = None
         msg_voice_user.id = 11
         msg_voice_user.from_user = MagicMock()
         msg_voice_user.from_user.id = 300  # пользователь
@@ -374,8 +392,10 @@ class TestReadChatHistory:
 
         msg_voice = MagicMock()
         msg_voice.text = None
+        msg_voice.caption = None
         msg_voice.sticker = None
         msg_voice.voice = MagicMock()
+        msg_voice.photo = None
         msg_voice.id = 10
         msg_voice.from_user = MagicMock()
         msg_voice.from_user.id = 400
@@ -406,8 +426,10 @@ class TestReadChatHistory:
             for i in range(3):
                 msg = MagicMock()
                 msg.text = f"msg{i}"
+                msg.caption = None
                 msg.sticker = None
                 msg.voice = None
+                msg.photo = None
                 msg.from_user = MagicMock()
                 msg.from_user.id = 400
                 yield msg
@@ -432,8 +454,10 @@ class TestReadChatHistory:
             for i in range(3):
                 msg = MagicMock()
                 msg.text = "A" * 6000
+                msg.caption = None
                 msg.sticker = None
                 msg.voice = None
+                msg.photo = None
                 msg.from_user = MagicMock()
                 msg.from_user.id = 400
                 yield msg
@@ -656,8 +680,10 @@ class TestTranscriptionLock:
         def make_voice_msg(msg_id, sender_id):
             msg = MagicMock()
             msg.text = None
+            msg.caption = None
             msg.sticker = None
             msg.voice = MagicMock()
+            msg.photo = None
             msg.id = msg_id
             msg.from_user = MagicMock()
             msg.from_user.id = sender_id

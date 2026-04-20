@@ -64,6 +64,12 @@ class TestDashboardStats:
         stats.record_voice_transcription()
         assert stats._stats.voice_transcriptions == 1
 
+    def test_record_photo_recognition(self) -> None:
+        """Счётчик распознавания фотографий."""
+        stats.record_photo_recognition()
+        stats.record_photo_recognition()
+        assert stats._stats.photo_recognitions == 2
+
     def test_record_command(self) -> None:
         """Счётчик команд."""
         stats.record_command("/start")

@@ -34,6 +34,7 @@ from database.users import clear_session, get_user, update_chat_style, update_la
 from system_messages import get_system_message
 from prompts import build_draft_prompt
 from utils.telegram_user import ensure_effective_user
+from clients.vision_client import analyze_photo_bytes
 from handlers.connect_handler import (
     _pending_2fa, _pending_phone,
     cancel_pending_2fa, cancel_pending_phone,
@@ -241,7 +242,7 @@ async def _is_user_typing(user_id: int, chat_id: int) -> bool:
 
 async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -> None:
     """Вызывается при новом входящем сообщении в любом чате пользователя."""
-    text = message.text
+    text = message.text or message.caption
 
     # Голосовое сообщение → транскрибируем
     if not text and message.voice:
@@ -258,6 +259,10 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
     if not text and message.sticker:
         emoji = message.sticker.emoji or STICKER_FALLBACK_EMOJI
         text = emoji
+
+    # Фото без подписи — ставим заглушку, чтобы пробить if not text
+    if not text and message.photo:
+        text = "[photo]"
 
     if not text:
         return
@@ -277,6 +282,20 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
     # Global ignore: Saved Messages + системные чаты (777000 и т.д.) — без обращения к БД
     if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
         return
+
+    # === Распознавание фото (Vision) ===
+    if message.photo:
+        try:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [VISION] Downloading photo for user {user_id} in {chat_id}...")
+            file_bytes = await pyrogram_client_instance.download_media(message, in_memory=True)
+            if file_bytes:
+                photo_desc = await analyze_photo_bytes(file_bytes.getvalue())
+                if photo_desc:
+                    dash_stats.record_photo_recognition()
+                    pyrogram_client.cache_photo_description(message.photo.file_unique_id, photo_desc)
+        except Exception as e:
+            print(f"{get_timestamp()} [VISION] ERROR processing photo for user {user_id}: {e}")
 
     key = (user_id, chat_id)
 

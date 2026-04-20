@@ -58,7 +58,7 @@ def _log_to_file(
 
 
 async def generate_response(
-    user_message: str,
+    user_message: str | list[dict],
     model: str = LLM_MODEL,
     system_prompt: str | None = BOT_PROMPT,
     reasoning_effort: str = "medium",

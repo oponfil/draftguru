@@ -38,6 +38,19 @@ _on_draft_callback = None
 _processed_msg_ids: dict[int, set[tuple[int, int]]] = defaultdict(set)
 _PROCESSED_IDS_MAX = 200
 
+# Кэш описаний фото (Vision): {file_unique_id: description}
+_photo_descriptions_cache: dict[str, str] = {}
+_PHOTO_CACHE_MAX = 500
+
+
+def cache_photo_description(file_unique_id: str, description: str) -> None:
+    """Сохраняет описание фото в In-Memory кэш."""
+    _photo_descriptions_cache[file_unique_id] = description
+    if len(_photo_descriptions_cache) > _PHOTO_CACHE_MAX:
+        # dict сохраняет порядок вставки в Python 3.7+
+        oldest = next(iter(_photo_descriptions_cache))
+        del _photo_descriptions_cache[oldest]
+
 
 def _make_processed_message_key(chat_id: int | None, message_id: int | None) -> tuple[int, int] | None:
     """Собирает ключ дедупликации сообщения."""
@@ -234,13 +247,20 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
 
     try:
         async for msg in client.get_chat_history(chat_id, limit=limit):
-            text = msg.text
+            text = msg.text or msg.caption
             # Стикер → эмодзи как текстовое представление
             if not text and msg.sticker:
                 text = msg.sticker.emoji or STICKER_FALLBACK_EMOJI
             # Голосовое сообщение → отложим транскрипцию
             if not text and msg.voice:
                 text = None  # placeholder, заполним после транскрипции
+                
+            # Фотография
+            if msg.photo:
+                photo_desc = _photo_descriptions_cache.get(msg.photo.file_unique_id)
+                prefix = f"[photo: {photo_desc}]" if photo_desc else "[photo]"
+                text = f"{prefix}\n{text}" if text else prefix
+
             if not text and not msg.voice:
                 continue
 

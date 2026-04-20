@@ -47,6 +47,7 @@ DEFAULT_LANGUAGE_CODE = "en"  # Язык по умолчанию (ISO 639-1)
 
 # ====== МОДЕЛЬ ИИ ======
 LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # FREE-модель (по умолчанию)
+PHOTO_ANALYSIS_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель для распознавания фото
 # PRO-модель для каждого стиля. Используется при pro_model=True.
 STYLE_PRO_MODELS: dict[str, str] = {
     "userlike": "openai/gpt-5.4",
