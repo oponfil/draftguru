@@ -107,7 +107,7 @@ class TestRetrieveContext:
         """retrieve_context() возвращает отформатированные чанки."""
         fake_embedding = [0.1] * 1536
         fake_chunks = [
-            {"id": 1, "source": "config.py", "section": "LLM_MODEL", "content": "LLM_MODEL = 'gemini'", "similarity": 0.85},
+            {"id": 1, "source": "config.py", "section": "FREE_LLM_MODEL", "content": "FREE_LLM_MODEL = 'gemini'", "similarity": 0.85},
             {"id": 2, "source": "README.md", "section": "Settings", "content": "## Settings", "similarity": 0.72},
         ]
 
@@ -117,7 +117,7 @@ class TestRetrieveContext:
             result = await retrieve_context("what model?")
 
         assert "config.py" in result
-        assert "LLM_MODEL" in result
+        assert "FREE_LLM_MODEL" in result
         assert "README.md" in result
         assert "relevance: 0.85" in result
 

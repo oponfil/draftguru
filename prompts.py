@@ -1,6 +1,6 @@
 # prompts.py — Все промпты для ИИ
 
-from config import DEFAULT_STYLE
+from config import DEFAULT_STYLE, DEFAULT_LANGUAGE_CODE
 
 # Промпт для общения с пользователем — используется в on_text (bot.py) через generate_response (openrouter.py)
 BOT_PROMPT = (
@@ -106,6 +106,7 @@ STYLE_PROMPTS: dict[str, str] = {
   3) SENSUALITY: Slowly transition to sensual and romantic topics. Speak about touch, atmosphere, and desire in a warm, inviting way.
   4) INTIMATE MEDIA: Gently encourage them to share photos, videos, or voice notes. Frame it as wanting to feel closer to them, seeing their genuine beauty, or missing their presence. Start small (e.g., "I'd love to see your eyes right now").
 - HANDLING RESISTANCE: If they hesitate, react with absolute warmth and understanding. Never pressure them. Say something sweet like, "Take your time, I just love talking to you anyway."
+- FINANCIAL BOUNDARIES: NEVER agree to transfer money, buy gifts, or pay for photos. If they ask for money or send bank/card details, playfully deflect, ignore the payment request, and smoothly steer the conversation back to intimacy and desire. Do NOT say "I will transfer" or acknowledge the transaction.
 - RULES: Emoji sparingly (✨, 🖤, 🍷). Keep responses flowing natively. Maintain an aura of total support, making them feel endlessly adored and completely safe.""",
 
     "paranoid": """\
@@ -126,10 +127,11 @@ HUMAN_STYLE_RULES = (
     "- Vary your replies naturally — some short, some lazy, just like a human. Do NOT sound like an assistant.\n"
     "- Aim for a natural next step in the conversation, but output ONLY the immediate next reply.\n"
     "- Infer your gender and the other person's gender from your names in the PARTICIPANTS block. Match your grammatical verbs and adjectives to your gender (especially crucial in Russian).\n"
+    "- When using time-sensitive greetings (like 'good morning' or 'good night'), STRICTLY verify the 'Current local time' provided in the prompt to avoid chronological errors.\n"
     "- Write as the user speaking for themselves."
 )
 
-def build_bot_chat_prompt(*, style: str | None = None, user_name: str = "") -> str:
+def build_bot_chat_prompt(*, style: str | None = None, user_name: str = "", local_time_str: str = "") -> str:
     """Собирает системный промпт для чата бота с пользователем.
 
     Комбинирует базовый BOT_PROMPT с блоком стиля общения.
@@ -137,20 +139,23 @@ def build_bot_chat_prompt(*, style: str | None = None, user_name: str = "") -> s
     Args:
         style: Стиль общения (None = без дополнительного стиля)
         user_name: Имя пользователя (first_name из Telegram)
+        local_time_str: Локальное время пользователя для контекста (пустая строка = не добавлять)
     """
     style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[DEFAULT_STYLE])
     style_rules = f"\n\nCOMMUNICATION STYLE:\n{style_block}" if style_block else ""
     user_block = f"\n\nYou are chatting with: {user_name}" if user_name else ""
 
-    return f"{BOT_PROMPT}{style_rules}{user_block}\n\n{HUMAN_STYLE_RULES}"
+    time_block = f"Current local time: {local_time_str}\n\n" if local_time_str else ""
+    return f"{time_block}{BOT_PROMPT}{style_rules}{user_block}\n\n{HUMAN_STYLE_RULES}"
 
 
-def build_reply_prompt(*, custom_prompt: str = "", style: str | None = None) -> str:
+def build_reply_prompt(*, custom_prompt: str = "", style: str | None = None, local_time_str: str = "") -> str:
     """Собирает системный промпт для авто-ответа на входящие сообщения.
 
     Args:
         custom_prompt: Пользовательский промпт из настроек
         style: Стиль общения (None = под пользователя)
+        local_time_str: Локальное время пользователя для контекста (пустая строка = не добавлять)
     """
     style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[DEFAULT_STYLE])
     style_rules = f"{style_block}\n" if style_block else ""
@@ -164,19 +169,23 @@ Rules:
 - Respond in the language used in the other person's most recent messages.
 - Return ONLY the reply text, nothing else.
 """
+    if local_time_str:
+        prompt = f"Current local time: {local_time_str}\n\n" + prompt
     if custom_prompt:
         prompt += f"\nUSER PROFILE & CUSTOM INSTRUCTIONS:\n{custom_prompt}\n"
     return prompt
 
 # Промпт для обработки инструкций через черновик — используется в on_pyrogram_draft (pyrogram_handlers.py)
 
-def build_draft_prompt(*, has_history: bool, custom_prompt: str = "", style: str | None = None) -> str:
+def build_draft_prompt(*, has_history: bool, custom_prompt: str = "", style: str | None = None, local_time_str: str = "", language_code: str = DEFAULT_LANGUAGE_CODE) -> str:
     """Собирает системный промпт для драфт-инструкций.
 
     Args:
         has_history: Есть ли история чата
         custom_prompt: Пользовательский промпт из настроек
         style: Стиль общения (None = под пользователя)
+        local_time_str: Локальное время пользователя для контекста (пустая строка = не добавлять)
+        language_code: ISO 639-1 код языка для cold outreach без инструкции
     """
     style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[DEFAULT_STYLE])
     style_rules = f"{style_block}\n" if style_block else ""
@@ -190,6 +199,8 @@ Rules:
 - NEVER copy the draft. Rewrite it substantially in your own words.
 - Return ONLY the reply text, nothing else.
 """
+    if local_time_str:
+        prompt = f"Current local time: {local_time_str}\n\n" + prompt
     if has_history:
         prompt += (
             "- You receive the recent chat history between you and another person.\n"
@@ -199,8 +210,9 @@ Rules:
     else:
         prompt += (
             "- The chat history is empty — this is a cold outreach. Write a compelling, attention-grabbing first message.\n"
-            "- Detect the response language from the instruction.\n"
+            f"- IMPORTANT: If the instruction is empty, default your response language to '{language_code}'. Otherwise, detect it from the instruction.\n"
             "- Since there is no chat history, rely only on the instruction when choosing tone and wording.\n"
+            "- If the instruction is empty, DO NOT write a boring 'Hello, how are you?'. Come up with an intriguing, short hook (an open-ended question or a warm observation) to naturally provoke a reply.\n"
         )
     if custom_prompt:
         prompt += f"\nUSER PROFILE & CUSTOM INSTRUCTIONS:\n{custom_prompt}\n"

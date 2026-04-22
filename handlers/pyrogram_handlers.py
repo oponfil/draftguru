@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from config import (
     DEBUG_PRINT,
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
-    EMOJI_TO_STYLE, IGNORED_CHAT_IDS, MAX_REGENERATIONS,
+    EMOJI_TO_STYLE, IGNORED_CHAT_IDS, MAX_REGENERATIONS, DEFAULT_LANGUAGE_CODE,
 )
 from utils.utils import (
     format_chat_history,
@@ -24,6 +24,7 @@ from utils.utils import (
     is_chat_specifically_ignored,
     serialize_user_updates,
     typing_action,
+    get_local_time_string,
 )
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
@@ -467,19 +468,26 @@ async def _run_generation_loop(
             return False
 
         ai_text = reply_text.strip()
-        _bot_drafts[key] = ai_text
-        _bot_draft_echoes[key] = ai_text
-        await pyrogram_client.set_draft(user_id, chat_id, ai_text)
-        _track_replied_chat(user_id, chat_id)
+        await register_bot_draft_and_schedule(user_id, chat_id, ai_text, user_settings, style)
 
-        print(f"{get_timestamp()} [DRAFT] Reply set as draft for user {user_id} in chat {chat_id}")
-        dash_stats.record_draft(style)
-        asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
-
-        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
         return True
 
     return False
+
+
+async def register_bot_draft_and_schedule(user_id: int, chat_id: int, ai_text: str, user_settings: dict, style: str) -> None:
+    """Устанавливает черновик от лица бота, регистрирует его и планирует автоответ."""
+    key = (user_id, chat_id)
+    _bot_drafts[key] = ai_text
+    _bot_draft_echoes[key] = ai_text
+    await pyrogram_client.set_draft(user_id, chat_id, ai_text)
+    _track_replied_chat(user_id, chat_id)
+
+    print(f"{get_timestamp()} [DRAFT] Reply set as draft for user {user_id} in chat {chat_id}")
+    dash_stats.record_draft(style)
+    asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
+
+    _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
 
 
 async def _generate_reply_for_chat(
@@ -781,12 +789,15 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
         # Генерируем ответ
         style = get_effective_style(user_settings, chat_id)
+        tz_offset = user_settings.get("tz_offset", 0) or 0
         gen_kwargs: dict = {
             "user_message": user_message,
             "system_prompt": build_draft_prompt(
                 has_history=bool(history),
                 custom_prompt=get_effective_prompt(user_settings, chat_id),
                 style=style,
+                local_time_str=get_local_time_string(tz_offset),
+                language_code=lang or DEFAULT_LANGUAGE_CODE,
             ),
         }
         model = get_effective_model(user_settings, style)

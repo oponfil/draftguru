@@ -140,6 +140,13 @@ SYSTEM_MESSAGES = {
     "poke_result": "✅ Checked {checked} chats — generating {drafts} drafts.",
     "poke_result_none": "✅ Checked {checked} chats — no drafts needed right now.",
     "menu_poke": "Poke active chats",
+
+    # — Cold Outreach —
+    "cold_outreach_success": "✅ Draft created successfully in chat with {username}!",
+    "cold_outreach_generating": "⏳ Searching for {username} and generating draft...",
+    "cold_outreach_not_found": "❌ User {username} not found or invalid.",
+    "cold_outreach_not_connected": "❌ You need to connect your account first via /connect before generating drafts.",
+    "cold_outreach_default_instruction": "Generate the first message.",
 }
 
 

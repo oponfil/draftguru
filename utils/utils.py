@@ -39,6 +39,12 @@ def get_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def get_local_time_string(tz_offset: float = 0) -> str:
+    """Возвращает текущее локальное время пользователя для промпта."""
+    local_time = datetime.now(timezone.utc) + timedelta(hours=tz_offset)
+    return local_time.strftime("%Y-%m-%d %H:%M")
+
+
 _TYPING_INTERVAL = 4  # Telegram сбрасывает индикатор ~5 сек; обновляем каждые 4
 _USER_UPDATE_LOCKS: dict[int, asyncio.Lock] = {}
 _USER_UPDATE_LOCK_COUNTS: defaultdict[int, int] = defaultdict(int)

@@ -1,17 +1,18 @@
 # handlers/bot_handlers.py — Обработчики команд Telegram Bot API (/start, on_text)
 
 import asyncio
+import re
 import traceback
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
 from telegram.ext import ContextTypes
 
-from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES
-from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action
+from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, FREE_LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES, DEFAULT_LANGUAGE_CODE
+from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
-from prompts import build_bot_chat_prompt
+from prompts import build_bot_chat_prompt, build_draft_prompt
 from logic.rag import retrieve_context
 from database.users import update_chat_prompt, update_last_msg_at, update_tg_rating, update_user_settings
 from utils.telegram_rating import extract_rating_from_chat
@@ -19,6 +20,7 @@ from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
 from dashboard import stats as dash_stats
 from handlers.connect_handler import on_connect
+from handlers.pyrogram_handlers import register_bot_draft_and_schedule
 
 
 @serialize_user_updates
@@ -172,6 +174,62 @@ async def _process_text(
         # Обновляем last_msg_at только после гарантированного наличия записи пользователя.
         asyncio.create_task(update_last_msg_at(u.id))
 
+        # === Cold Outreach Generation via Username ===
+        username_match = re.match(r"^(@[a-zA-Z0-9_]{5,32}|https?://t\.me/[a-zA-Z0-9_]{5,32}|t\.me/[a-zA-Z0-9_]{5,32})(?:\s+(.*))?$", message_text.strip(), flags=re.IGNORECASE)
+        if username_match:
+            raw_username = username_match.group(1)
+            instruction = username_match.group(2) or ""
+            
+            if not pyrogram_client.is_active(u.id):
+                error_msg = await get_system_message(u.language_code, "cold_outreach_not_connected")
+                await m.reply_text(error_msg)
+                return
+
+            gen_msg_text = (await get_system_message(u.language_code, "cold_outreach_generating")).format(username=raw_username)
+            status_msg = await m.reply_text(gen_msg_text)
+            
+            target_chat = await pyrogram_client.resolve_target_chat(u.id, raw_username)
+            if not target_chat:
+                error_msg = (await get_system_message(u.language_code, "cold_outreach_not_found")).format(username=raw_username)
+                await status_msg.edit_text(error_msg)
+                return
+                
+            chat_id = target_chat["chat_id"]
+            
+            user_settings = (user or {}).get("settings") or {}
+            style = user_settings.get("style", "userlike")
+            tz_offset = user_settings.get("tz_offset", 0) or 0
+            
+            gen_kwargs = {
+                "system_prompt": build_draft_prompt(
+                    has_history=False,
+                    custom_prompt=user_settings.get("custom_prompt", ""),
+                    style=style,
+                    local_time_str=get_local_time_string(tz_offset),
+                    language_code=u.language_code or DEFAULT_LANGUAGE_CODE,
+                ),
+            }
+            model = get_effective_model(user_settings, style)
+            if model:
+                gen_kwargs["model"] = model
+            
+            if instruction.strip():
+                user_msg_text = f"INSTRUCTION: {instruction}"
+            else:
+                user_msg_text = await get_system_message(u.language_code, "cold_outreach_default_instruction")
+                
+            draft_text = await generate_response(user_msg_text, **gen_kwargs)
+            
+            if draft_text and draft_text.strip():
+                await register_bot_draft_and_schedule(u.id, chat_id, draft_text.strip(), user_settings, style)
+                
+                success_msg = (await get_system_message(u.language_code, "cold_outreach_success")).format(username=raw_username)
+                await status_msg.edit_text(success_msg)
+            else:
+                error_msg = await get_system_message(u.language_code, "error")
+                await status_msg.edit_text(error_msg)
+            return
+
         # История сообщений в чате с ботом (хранится в context.chat_data)
         history: list[dict] = context.chat_data.setdefault("history", [])
 
@@ -185,14 +243,19 @@ async def _process_text(
         user_settings = (user or {}).get("settings") or {}
         style = user_settings.get("style")
         model = get_effective_model(user_settings, style)
-        effective_model = model or LLM_MODEL
+        effective_model = model or FREE_LLM_MODEL
 
         # Генерируем ответ через OpenRouter с историей и стилем
         kwargs: dict = {"chat_history": history[-MAX_CONTEXT_MESSAGES:]}
         full_name = u.first_name or ""
         if u.last_name:
             full_name += f" {u.last_name}"
-        kwargs["system_prompt"] = build_bot_chat_prompt(style=style, user_name=full_name)
+        tz_offset = user_settings.get("tz_offset", 0) or 0
+        kwargs["system_prompt"] = build_bot_chat_prompt(
+            style=style, 
+            user_name=full_name,
+            local_time_str=get_local_time_string(tz_offset),
+        )
         kwargs["reasoning_effort"] = MODEL_REASONING_EFFORT.get(effective_model, "medium")
         if model:
             kwargs["model"] = model

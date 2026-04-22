@@ -447,6 +447,44 @@ async def get_chat_bio(user_id: int, chat_id: int) -> str | None:
         return None
 
 
+async def resolve_target_chat(user_id: int, username: str) -> dict | None:
+    """Извлекает chat_id и инфо о собеседнике по username.
+
+    Args:
+        user_id: Telegram user ID
+        username: Username (с `@` или без)
+
+    Returns:
+        Словарь с chat_id, first_name и т.д., или None если не найдено
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return None
+
+    try:
+        if username.startswith("@"):
+            username = username[1:]
+        elif username.startswith("https://t.me/"):
+            username = username[13:]
+        elif username.startswith("http://t.me/"):
+            username = username[12:]
+        elif username.startswith("t.me/"):
+            username = username[5:]
+
+        chat = await client.get_chat(username)
+        return {
+            "chat_id": chat.id,
+            "first_name": chat.first_name,
+            "last_name": chat.last_name,
+            "username": chat.username,
+            "bio": getattr(chat, "bio", None),
+        }
+    except Exception as e:
+        if DEBUG_PRINT:
+            print(f"{get_timestamp()} [PYROGRAM] ERROR resolving username {username} for user {user_id}: {e}")
+        return None
+
+
 def get_active_user_ids() -> list[int]:
     """Возвращает ID пользователей с активными Pyrogram-клиентами."""
     return list(_active_clients.keys())

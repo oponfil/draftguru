@@ -161,8 +161,8 @@ class TestOnText:
             await on_text(mock_update, mock_context)
 
         call_kwargs = mock_generate.call_args.kwargs
-        assert call_kwargs["model"] == "google/gemini-3.1-pro-preview"
-        assert call_kwargs["reasoning_effort"] == "low"
+        assert call_kwargs["model"] == "anthropic/claude-opus-4.7"
+        assert call_kwargs["reasoning_effort"] == "medium"
 
     @pytest.mark.asyncio
     async def test_new_user_empty_settings_gets_default_pro_model(self, mock_update, mock_context):

@@ -9,6 +9,7 @@ Open-source Telegram bot that drafts replies for you. Try it: [@DraftGuruBot](ht
 1. 🔌 Connect your account via `/connect` (phone number or QR code).
 2. 🦉 When you receive a private message, the bot automatically drafts a reply right in the input field.
 3. ✏️ Write an instruction in the draft — the bot will rewrite it as soon as you leave the chat.
+4. 🎯 Send a `@username` (with an optional instruction) to the bot — it will instantly generate a cold outreach draft in that user's chat.
 
 Auto-replies and follow-ups work in private chats only. Draft instructions work everywhere.
 
@@ -121,6 +122,11 @@ Per-chat settings override the global ones from `/settings`. If a per-chat value
 | 😈 | Seducer |
 
 You can combine: `😈 tell her I miss her` — switches the style to Seducer and executes the instruction.
+
+**Cold Outreach via Mentions:**
+You can send any Telegram username (e.g. `@johndoe` or `t.me/johndoe`) directly to the bot. The bot will securely resolve the username and generate a compelling "first message" draft right in the target user's chat.
+- **Instruct:** Add a plain text instruction to guide the AI, e.g. `@johndoe invite him to a tech meetup`.
+- **Language:** If you provide no instruction (`@johndoe`), the draft is natively composed in your Telegram UI's default language. The bot will use an intriguing hook or open-ended question instead of a generic "hello".
 
 ### Voice Messages, Stickers, and Photos
 

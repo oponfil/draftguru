@@ -46,17 +46,18 @@ EVM_PRIVATE_KEY = os.getenv("EVM_PRIVATE_KEY", "")
 DEFAULT_LANGUAGE_CODE = "en"  # Язык по умолчанию (ISO 639-1)
 
 # ====== МОДЕЛЬ ИИ ======
-LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # FREE-модель (по умолчанию)
+FREE_LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # FREE-модель (по умолчанию)
 PHOTO_ANALYSIS_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель для распознавания фото
+FALLBACK_MODEL = "google/gemini-3.1-flash-lite-preview"  # Резервная модель при отказах и цензурных фильтрах PRO-моделей
 # PRO-модель для каждого стиля. Используется при pro_model=True.
 STYLE_PRO_MODELS: dict[str, str] = {
-    "userlike": "openai/gpt-5.4",
-    "friend": "openai/gpt-5.4",
-    "romance": "openai/gpt-5.4",
-    "seducer": "google/gemini-3.1-pro-preview",
-    "business": "openai/gpt-5.4",
-    "sales": "openai/gpt-5.4",
-    "paranoid": "openai/gpt-5.4",
+    "userlike": "anthropic/claude-opus-4.7",    #openai/gpt-5.4
+    "friend": "anthropic/claude-opus-4.7",
+    "romance": "anthropic/claude-opus-4.7",
+    "seducer": "anthropic/claude-opus-4.7", #google/gemini-3.1-pro-preview
+    "business": "anthropic/claude-opus-4.7",
+    "sales": "anthropic/claude-opus-4.7",
+    "paranoid": "anthropic/claude-opus-4.7",
 }
 # Уровень reasoning для конкретных моделей (minimal/low/medium/high).
 # Если модели нет в словаре — используется "medium" по умолчанию.

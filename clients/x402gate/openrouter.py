@@ -11,7 +11,8 @@ from datetime import datetime
 
 from clients.x402gate import NonRetriableRequestError, TopupError, x402gate_client
 from config import (
-    LLM_MODEL,
+    FALLBACK_MODEL,
+    FREE_LLM_MODEL,
     DEBUG_PRINT,
     LOG_TO_FILE,
     RETRY_ATTEMPTS,
@@ -59,7 +60,7 @@ def _log_to_file(
 
 async def generate_response(
     user_message: str | list[dict],
-    model: str = LLM_MODEL,
+    model: str = FREE_LLM_MODEL,
     system_prompt: str | None = BOT_PROMPT,
     reasoning_effort: str = "medium",
     chat_history: list[dict] | None = None,
@@ -68,7 +69,7 @@ async def generate_response(
 
     Args:
         user_message: Текст сообщения пользователя
-        model: Модель OpenRouter (по умолчанию LLM_MODEL из config)
+        model: Модель OpenRouter (по умолчанию FREE_LLM_MODEL из config)
         system_prompt: Системный промпт (None — без системного промпта)
         reasoning_effort: Уровень reasoning (minimal/low/medium/high)
         chat_history: Предыдущие сообщения [{"role": "user"/"assistant", "content": "..."}]
@@ -103,10 +104,12 @@ async def generate_response(
     api_path = "/v1/openrouter/chat/completions"
     start_time = time.time()
     last_error = None
+    current_model = model
 
     # Retry с экспоненциальной задержкой
     for attempt in range(RETRY_ATTEMPTS + 1):
         try:
+            payload["model"] = current_model
             result = await x402gate_client.request(api_path, payload)
 
             # x402gate оборачивает ответ в {"data": {...}}
@@ -149,19 +152,19 @@ async def generate_response(
                 token_info += f" (reasoning: {reasoning_tokens})"
 
             print(
-                f"{get_timestamp()} [OPENROUTER] {model} | "
+                f"{get_timestamp()} [OPENROUTER] {current_model} | "
                 f"{duration:.2f}s | {token_info}"
             )
 
             dash_stats.record_llm_request(
-                model=model,
+                model=current_model,
                 latency_s=duration,
                 tokens_in=input_tokens,
                 tokens_out=output_tokens,
                 reasoning_tokens=reasoning_tokens,
             )
 
-            _log_to_file(payload, text.strip(), model, duration, usage, reasoning_text)
+            _log_to_file(payload, text.strip(), current_model, duration, usage, reasoning_text)
 
             return text.strip()
 
@@ -174,14 +177,17 @@ async def generate_response(
                 print(f"{get_timestamp()} [OPENROUTER] Non-retriable error: {e}")
                 break
 
-            # ContentFilterError — ретрай бесполезен, тот же контент будет заблокирован
-            if isinstance(e, ContentFilterError):
-                print(f"{get_timestamp()} [OPENROUTER] Content filter — not retrying: {e}")
-                break
-
-            if isinstance(e, RuntimeError) and "empty response" in str(e).lower():
-                print(f"{get_timestamp()} [OPENROUTER] Invalid model response — not retrying: {e}")
-                break
+            # ContentFilterError или пустой ответ — обычно означает фильтр. Меняем на fallback если возможно.
+            is_filter_or_empty = isinstance(e, ContentFilterError) or (isinstance(e, RuntimeError) and "empty response" in str(e).lower())
+            
+            if is_filter_or_empty:
+                if current_model != FALLBACK_MODEL:
+                    print(f"{get_timestamp()} [OPENROUTER] Model {current_model} failed ({e}). Switching to fallback model {FALLBACK_MODEL}...")
+                    current_model = FALLBACK_MODEL
+                    continue
+                else:
+                    print(f"{get_timestamp()} [OPENROUTER] Fallback model {current_model} also failed — not retrying: {e}")
+                    break
 
             if attempt < RETRY_ATTEMPTS:
                 delay = RETRY_DELAY * (RETRY_EXPONENTIAL_BASE ** attempt)
