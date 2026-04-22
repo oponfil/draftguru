@@ -522,6 +522,8 @@ class TestOnPyrogramMessage:
         message.caption = None
         message.sticker = None
         message.photo = None
+        message.video = None
+        message.video_note = None
         message.voice = MagicMock()  # есть голосовое
         message.id = 42
         message.date = "2026-03-15T10:00:00Z"
@@ -604,6 +606,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -637,6 +642,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -671,6 +679,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -699,6 +710,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -742,6 +756,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -779,6 +796,9 @@ class TestOnPyrogramMessage:
         message.from_user = MagicMock()
         message.from_user.is_bot = False
         message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")
@@ -1769,6 +1789,9 @@ class TestIgnoredChatIDs:
         message.outgoing = False
         message.from_user = MagicMock()
         message.from_user.is_bot = False
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 999
         message.chat.type = MagicMock(value="private")
@@ -1811,6 +1834,9 @@ class TestDefaultProModelRuntime:
         message.from_user.username = None
         message.from_user.language_code = "en"
         message.from_user.is_premium = False
+        message.photo = None
+        message.video = None
+        message.video_note = None
         message.chat = MagicMock()
         message.chat.id = 456
         message.chat.type = MagicMock(value="private")

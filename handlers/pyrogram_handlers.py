@@ -12,6 +12,8 @@ from config import (
     DEBUG_PRINT,
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
     EMOJI_TO_STYLE, IGNORED_CHAT_IDS, MAX_REGENERATIONS, DEFAULT_LANGUAGE_CODE,
+    MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, AUTO_REPLY_MAX_CONTEXT_MESSAGES, AUTO_REPLY_MAX_CONTEXT_CHARS,
+    TELEGRAM_MAX_GET_FILE_SIZE,
 )
 from utils.utils import (
     format_chat_history,
@@ -35,7 +37,7 @@ from database.users import clear_session, get_user, update_chat_style, update_la
 from system_messages import get_system_message
 from prompts import build_draft_prompt
 from utils.telegram_user import ensure_effective_user
-from clients.vision_client import analyze_photo_bytes
+from clients.vision_client import analyze_photo_bytes, analyze_video_bytes
 from handlers.connect_handler import (
     _pending_2fa, _pending_phone,
     cancel_pending_2fa, cancel_pending_phone,
@@ -301,6 +303,22 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
         except Exception as e:
             print(f"{get_timestamp()} [VISION] ERROR processing photo for user {user_id}: {e}")
 
+    # === Распознавание видео (Vision) ===
+    vid = message.video or message.video_note
+    if vid and vid.file_size and vid.file_size <= TELEGRAM_MAX_GET_FILE_SIZE:
+        try:
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [VISION] Downloading video for user {user_id} in {chat_id} (size: {vid.file_size} bytes)...")
+            file_bytes = await pyrogram_client_instance.download_media(message, in_memory=True)
+            if file_bytes:
+                video_desc = await analyze_video_bytes(file_bytes.getvalue())
+                if video_desc:
+                    # Пока используем ту же метрику и тот же кэш (его ключом является unique_id)
+                    dash_stats.record_photo_recognition()
+                    pyrogram_client.cache_photo_description(vid.file_unique_id, video_desc)
+        except Exception as e:
+            print(f"{get_timestamp()} [VISION] ERROR processing video for user {user_id}: {e}")
+
     key = (user_id, chat_id)
 
     # Запоминаем ID последнего обработанного сообщения для polling
@@ -415,6 +433,14 @@ async def _extract_opponent_from_history(
     return None
 
 
+def _get_context_limits(user_settings: dict, chat_id: int) -> tuple[int, int]:
+    """Возвращает (limit, max_chars) для read_chat_history в зависимости от режима автоответа."""
+    auto_reply = get_effective_auto_reply(user_settings, chat_id)
+    if auto_reply and auto_reply > 0:
+        return AUTO_REPLY_MAX_CONTEXT_MESSAGES, AUTO_REPLY_MAX_CONTEXT_CHARS
+    return MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS
+
+
 async def _run_generation_loop(
     user_id: int, chat_id: int,
     user: dict | None, user_settings: dict, style: str,
@@ -431,7 +457,8 @@ async def _run_generation_loop(
     for iteration in range(MAX_REGENERATIONS):
         _reply_pending.pop(key, None)
 
-        history = await pyrogram_client.read_chat_history(user_id, chat_id)
+        limit, max_chars = _get_context_limits(user_settings, chat_id)
+        history = await pyrogram_client.read_chat_history(user_id, chat_id, limit=limit, max_chars=max_chars)
         if not history:
             if clear_probe:
                 await clear_probe()
@@ -763,7 +790,8 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
     try:
         # Читаем историю чата для контекста
-        history = await pyrogram_client.read_chat_history(user_id, chat_id)
+        limit, max_chars = _get_context_limits(user_settings, chat_id)
+        history = await pyrogram_client.read_chat_history(user_id, chat_id, limit=limit, max_chars=max_chars)
 
         # Формируем запрос: инструкция + контекст переписки
 
@@ -785,7 +813,10 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
             tz_offset = user_settings.get("tz_offset", 0) or 0
             user_message = format_chat_history(history, user, opponent_info, tz_offset=tz_offset)
             user_message += "\n\n"
-        user_message += f"INSTRUCTION: {instruction}"
+        user_message += (
+            f"\n\n[SYSTEM]: The user typed the following input:\n"
+            f"«{instruction}»"
+        )
 
         # Генерируем ответ
         style = get_effective_style(user_settings, chat_id)
@@ -946,7 +977,8 @@ async def poll_follow_ups(user_id: int) -> int:
 
         # Генерируем follow-up
         try:
-            history = await pyrogram_client.read_chat_history(user_id, chat_id)
+            limit, max_chars = _get_context_limits(user_settings, chat_id)
+            history = await pyrogram_client.read_chat_history(user_id, chat_id, limit=limit, max_chars=max_chars)
             if not history:
                 continue
 

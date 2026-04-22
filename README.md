@@ -16,7 +16,7 @@ Auto-replies and follow-ups work in private chats only. Draft instructions work 
 ## Security
 
 - By default, the bot **only writes drafts** and never sends messages on your behalf. Auto-sending is only possible when the auto-reply timer is explicitly enabled in `/settings`.
-- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is limited to the last 30 messages or 16,000 characters (whichever comes first); older messages are dropped.
+- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is dynamically limited: up to 30 messages (5,000 characters) for standard drafts, and up to 150 messages (15,000 characters) for auto-replies to provide deeper conversational context. Older messages are dropped.
 - **Saved Messages** (self-chat) and **Telegram service notifications** are fully ignored — the bot doesn't read, draft, or process messages in them. Additional chats can be excluded via `IGNORED_CHAT_IDS` in `config.py`.
 - Telegram sessions are encrypted with `Fernet` (`SESSION_ENCRYPTION_KEY`) before being stored in the database.
 
@@ -128,13 +128,13 @@ You can send any Telegram username (e.g. `@johndoe` or `t.me/johndoe`) directly 
 - **Instruct:** Add a plain text instruction to guide the AI, e.g. `@johndoe invite him to a tech meetup`.
 - **Language:** If you provide no instruction (`@johndoe`), the draft is natively composed in your Telegram UI's default language. The bot will use an intriguing hook or open-ended question instead of a generic "hello".
 
-### Voice Messages, Stickers, and Photos
+### Media: Voice, Video, Photos, and Stickers
 
-All voice messages in the chat history — from both sides (yours and the contact's) — are automatically transcribed via Telegram Premium `TranscribeAudio` and included in the AI context as text. Voice messages are transcribed sequentially to avoid Telegram rate limits; results are cached so repeated reads don't re-transcribe. If transcription fails (e.g. no Premium), the message is included as `[voice message]` so the AI still knows a voice was sent. Requires Telegram Premium on the connected account (or trial attempts for free users).
+All voice messages in the chat history — from both sides (yours and the contact's) — are automatically transcribed via Telegram Premium `TranscribeAudio` and included in the AI context as text. Voice messages are transcribed sequentially to avoid Telegram rate limits; results are cached so repeated reads don't re-transcribe. If transcription fails (e.g. no Premium), the message is included as `[voice message]` so the AI still knows a voice was sent. Requires Telegram Premium on the connected account.
 
 Stickers are processed by emoji — the bot sees the sticker's emoji in the conversation context and generates an appropriate reply.
 
-**Photos** are automatically analyzed using the Vision capabilities of the Gemini 3.1 Flash Lite model. When someone sends a photo in a private chat, the bot securely fetches the image, generates a textual description of its contents, and injects it into the AI context as `[photo: description]`. This allows the AI to "see" the photo and generate highly contextual replies. The descriptions are cached in memory to speed up context generation. Original photo captions, if present, are also preserved and fed to the AI.
+**Photos and Videos** are automatically analyzed using the Vision capabilities of the Gemini 3.1 models. When someone sends a photo, a short video, or a video note (Telegram circle) in a private chat (up to a 20 MB RAM limit), the bot securely fetches the media in-memory, generates a deep textual description of its visual contents, natively transcribes any speech within the video (bypassing Telegram Premium restrictions), and injects it into the AI context as `[photo: description]` or `[video: description]`. The descriptions are cached in memory via the file's unique ID to speed up future context generation. Original media captions, if present, are also preserved and fed to the AI.
 
 ## Dashboard
 

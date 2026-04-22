@@ -161,7 +161,7 @@ class TestOnText:
             await on_text(mock_update, mock_context)
 
         call_kwargs = mock_generate.call_args.kwargs
-        assert call_kwargs["model"] == "anthropic/claude-opus-4.7"
+        assert call_kwargs["model"] == "z-ai/glm-5.1"
         assert call_kwargs["reasoning_effort"] == "medium"
 
     @pytest.mark.asyncio

@@ -51,19 +51,23 @@ PHOTO_ANALYSIS_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель д
 FALLBACK_MODEL = "google/gemini-3.1-flash-lite-preview"  # Резервная модель при отказах и цензурных фильтрах PRO-моделей
 # PRO-модель для каждого стиля. Используется при pro_model=True.
 STYLE_PRO_MODELS: dict[str, str] = {
-    "userlike": "anthropic/claude-opus-4.7",    #openai/gpt-5.4
-    "friend": "anthropic/claude-opus-4.7",
-    "romance": "anthropic/claude-opus-4.7",
-    "seducer": "anthropic/claude-opus-4.7", #google/gemini-3.1-pro-preview
-    "business": "anthropic/claude-opus-4.7",
-    "sales": "anthropic/claude-opus-4.7",
-    "paranoid": "anthropic/claude-opus-4.7",
+    "userlike": "z-ai/glm-5.1",    #openai/gpt-5.4
+    "friend": "z-ai/glm-5.1",
+    "romance": "z-ai/glm-5.1",
+    "seducer": "z-ai/glm-5.1", #google/gemini-3.1-pro-preview
+    "business": "z-ai/glm-5.1", #anthropic/claude-opus-4.7
+    "sales": "z-ai/glm-5.1",
+    "paranoid": "z-ai/glm-5.1",
 }
 # Уровень reasoning для конкретных моделей (minimal/low/medium/high).
 # Если модели нет в словаре — используется "medium" по умолчанию.
 MODEL_REASONING_EFFORT: dict[str, str] = {
     "google/gemini-3.1-pro-preview": "low",
 }
+
+# ====== VISION / MEDIA ======
+TELEGRAM_MAX_GET_FILE_SIZE = 20 * 1024 * 1024  # Ограничение на скачивание медиа (видео/фото) в RAM
+
 
 # ====== RETRY ======
 RETRY_ATTEMPTS = 2  # Количество повторных попыток
@@ -75,8 +79,10 @@ SYSTEM_MESSAGE_TRANSLATION_TIMEOUT = 60
 SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS = 300.0
 
 # ====== КОНТЕКСТ ======
-MAX_CONTEXT_MESSAGES = 30  # Макс. кол-во сообщений из чата для контекста
-MAX_CONTEXT_CHARS = 16000  # Макс. суммарная длина текста в истории (символы)
+MAX_CONTEXT_MESSAGES = 30  # Макс. кол-во сообщений из чата для контекста (черновики)
+MAX_CONTEXT_CHARS = 5000  # Макс. суммарная длина текста в истории (символы)
+AUTO_REPLY_MAX_CONTEXT_MESSAGES = 150  # Макс. кол-во сообщений для режима автоответа
+AUTO_REPLY_MAX_CONTEXT_CHARS = 15000  # Макс. суммарная длина текста для автоответа
 
 # ====== QR LOGIN ======
 QR_LOGIN_TIMEOUT_SECONDS = 120  # Таймаут ожидания сканирования QR-кода (секунды)

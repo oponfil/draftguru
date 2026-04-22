@@ -2,6 +2,7 @@
 # pyright: reportMissingImports=false
 
 import asyncio
+import os
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -222,7 +223,7 @@ def is_active(user_id: int) -> bool:
     return user_id in _active_clients
 
 
-async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT_MESSAGES) -> list[dict]:
+async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT_MESSAGES, max_chars: int = MAX_CONTEXT_CHARS) -> list[dict]:
     """Читает последние сообщения из чата пользователя.
 
     Голосовые сообщения транскрибируются через per-user lock (один запрос за раз).
@@ -232,6 +233,7 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
         user_id: Telegram user ID
         chat_id: ID чата для чтения
         limit: Максимальное количество сообщений
+        max_chars: Максимальная суммарная длина текста (в символах)
 
     Returns:
         Список сообщений [{role: "user"/"other", text: "..."}]
@@ -259,6 +261,13 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
             if msg.photo:
                 photo_desc = _photo_descriptions_cache.get(msg.photo.file_unique_id)
                 prefix = f"[photo: {photo_desc}]" if photo_desc else "[photo]"
+                text = f"{prefix}\n{text}" if text else prefix
+
+            # Видео / кружочек
+            vid = msg.video or msg.video_note
+            if vid:
+                video_desc = _photo_descriptions_cache.get(vid.file_unique_id)
+                prefix = f"[video: {video_desc}]" if video_desc else "[video]"
                 text = f"{prefix}\n{text}" if text else prefix
 
             if not text and not msg.voice:
@@ -314,7 +323,7 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
 
         # Обрезаем по суммарной длине текста (убираем старые сообщения)
         total_chars = sum(len(m["text"] or "") for m in messages)
-        while messages and total_chars > MAX_CONTEXT_CHARS:
+        while messages and total_chars > max_chars:
             removed = messages.pop(0)
             total_chars -= len(removed["text"] or "")
 
@@ -813,7 +822,16 @@ async def transcribe_voice(user_id: int, chat_id: int, msg_id: int) -> str | Non
 
     except Exception as e:
         error_str = str(e)
-        if "PREMIUM_ACCOUNT_REQUIRED" in error_str:
+        if "MSG_VOICE_MISSING" in error_str:
+            print(f"{get_timestamp()} [PYROGRAM] ERROR: MSG_VOICE_MISSING for message in chat {chat_id}. Erasing unknown_errors.txt if exists.")
+            # Гасим ошибку (сообщение, заявленное как голосовое, не было распознано сервером).
+            # Библиотека Pyrogram успевает создать файл лога при неизвестных ей ошибках телеграма — удаляем его.
+            if os.path.exists("unknown_errors.txt"):
+                try:
+                    os.remove("unknown_errors.txt")
+                except OSError:
+                    pass
+        elif "PREMIUM_ACCOUNT_REQUIRED" in error_str:
             print(f"{get_timestamp()} [PYROGRAM] WARNING: voice transcription requires Premium in chat {chat_id}")
         else:
             print(f"{get_timestamp()} [PYROGRAM] ERROR transcribing voice in chat {chat_id}: {e}")

@@ -241,6 +241,8 @@ class TestReadChatHistory:
         msg1.caption = None
         msg1.voice = None
         msg1.photo = None
+        msg1.video = None
+        msg1.video_note = None
         msg1.from_user = MagicMock()
         msg1.from_user.id = 300  # Это пользователь
 
@@ -249,6 +251,8 @@ class TestReadChatHistory:
         msg2.caption = None
         msg2.voice = None
         msg2.photo = None
+        msg2.video = None
+        msg2.video_note = None
         msg2.from_user = MagicMock()
         msg2.from_user.id = 400  # Это собеседник
 
@@ -258,6 +262,8 @@ class TestReadChatHistory:
         msg3.sticker = None  # И не стикер
         msg3.voice = None   # И не голосовое
         msg3.photo = None
+        msg3.video = None
+        msg3.video_note = None
 
         async def mock_get_history(*args, **kwargs):
             for m in [msg1, msg2, msg3]:
@@ -286,6 +292,8 @@ class TestReadChatHistory:
         msg_text.caption = None
         msg_text.sticker = None
         msg_text.photo = None
+        msg_text.video = None
+        msg_text.video_note = None
         msg_text.from_user = MagicMock()
         msg_text.from_user.id = 300
 
@@ -293,6 +301,8 @@ class TestReadChatHistory:
         msg_sticker.text = None
         msg_sticker.caption = None
         msg_sticker.photo = None
+        msg_sticker.video = None
+        msg_sticker.video_note = None
         msg_sticker.sticker = MagicMock()
         msg_sticker.sticker.emoji = "😂"
         msg_sticker.from_user = MagicMock()
@@ -302,6 +312,8 @@ class TestReadChatHistory:
         msg_sticker_no_emoji.text = None
         msg_sticker_no_emoji.caption = None
         msg_sticker_no_emoji.photo = None
+        msg_sticker_no_emoji.video = None
+        msg_sticker_no_emoji.video_note = None
         msg_sticker_no_emoji.sticker = MagicMock()
         msg_sticker_no_emoji.sticker.emoji = None  # Без эмодзи → STICKER_FALLBACK_EMOJI
         msg_sticker_no_emoji.from_user = MagicMock()
@@ -335,6 +347,8 @@ class TestReadChatHistory:
         msg_text.sticker = None
         msg_text.voice = None
         msg_text.photo = None
+        msg_text.video = None
+        msg_text.video_note = None
         msg_text.from_user = MagicMock()
         msg_text.from_user.id = 400  # оппонент
 
@@ -344,6 +358,8 @@ class TestReadChatHistory:
         msg_voice_other.sticker = None
         msg_voice_other.voice = MagicMock()
         msg_voice_other.photo = None
+        msg_voice_other.video = None
+        msg_voice_other.video_note = None
         msg_voice_other.id = 10
         msg_voice_other.from_user = MagicMock()
         msg_voice_other.from_user.id = 400  # оппонент
@@ -354,6 +370,8 @@ class TestReadChatHistory:
         msg_voice_user.sticker = None
         msg_voice_user.voice = MagicMock()
         msg_voice_user.photo = None
+        msg_voice_user.video = None
+        msg_voice_user.video_note = None
         msg_voice_user.id = 11
         msg_voice_user.from_user = MagicMock()
         msg_voice_user.from_user.id = 300  # пользователь
@@ -396,6 +414,8 @@ class TestReadChatHistory:
         msg_voice.sticker = None
         msg_voice.voice = MagicMock()
         msg_voice.photo = None
+        msg_voice.video = None
+        msg_voice.video_note = None
         msg_voice.id = 10
         msg_voice.from_user = MagicMock()
         msg_voice.from_user.id = 400
@@ -430,6 +450,8 @@ class TestReadChatHistory:
                 msg.sticker = None
                 msg.voice = None
                 msg.photo = None
+                msg.video = None
+                msg.video_note = None
                 msg.from_user = MagicMock()
                 msg.from_user.id = 400
                 yield msg
@@ -449,15 +471,17 @@ class TestReadChatHistory:
         """Если суммарная длина текста превышает MAX_CONTEXT_CHARS — старые сообщения обрезаются."""
         mock_client = AsyncMock()
 
-        # 3 сообщения по 6000 символов = 18000 > MAX_CONTEXT_CHARS (16000)
+        # 3 сообщения по 3000 символов = 9000 > MAX_CONTEXT_CHARS (5000)
         async def mock_get_history(*args, **kwargs):
             for i in range(3):
                 msg = MagicMock()
-                msg.text = "A" * 6000
+                msg.text = "A" * 3000
                 msg.caption = None
                 msg.sticker = None
                 msg.voice = None
                 msg.photo = None
+                msg.video = None
+                msg.video_note = None
                 msg.from_user = MagicMock()
                 msg.from_user.id = 400
                 yield msg
@@ -467,10 +491,10 @@ class TestReadChatHistory:
 
         result = await pyrogram_client.read_chat_history(300, 400, limit=10)
 
-        # 18000 > 16000 → первое (самое старое) сообщение убрано, осталось 2
-        assert len(result) == 2
+        # 9000 > 5000 → первое (самое старое) сообщение убрано, осталось максимум 1 (последнее)
+        assert len(result) == 1
         total = sum(len(m["text"]) for m in result)
-        assert total <= 16000
+        assert total <= 5000
 
         del pyrogram_client._active_clients[300]
 
@@ -684,6 +708,8 @@ class TestTranscriptionLock:
             msg.sticker = None
             msg.voice = MagicMock()
             msg.photo = None
+            msg.video = None
+            msg.video_note = None
             msg.id = msg_id
             msg.from_user = MagicMock()
             msg.from_user.id = sender_id
