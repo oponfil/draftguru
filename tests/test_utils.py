@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from utils.utils import get_timestamp, typing_action, format_profile, format_chat_history
+from utils.utils import get_timestamp, typing_action, format_profile, format_chat_history, extract_autonomous_delay
 
 
 class TestGetTimestamp:
@@ -223,3 +223,69 @@ class TestFormatChatHistory:
 
         result = format_chat_history(history, user_info, None)
         assert "You bio: Программист из РФ" in result
+
+
+class TestExtractAutonomousDelay:
+    """Тесты для extract_autonomous_delay()."""
+
+    def test_delay_seconds(self):
+        """Корректный тег [DELAY: 120] → извлекается задержка."""
+        text, delay, is_manual = extract_autonomous_delay("Привет! [DELAY: 120]")
+        assert text == "Привет!"
+        assert delay == 120
+        assert is_manual is False
+
+    def test_delay_manual(self):
+        """Тег [DELAY: MANUAL] → is_manual=True."""
+        text, delay, is_manual = extract_autonomous_delay("Не уверен [DELAY: MANUAL]")
+        assert text == "Не уверен"
+        assert delay is None
+        assert is_manual is True
+
+    def test_no_tag(self):
+        """Текст без тега → возвращается как есть."""
+        text, delay, is_manual = extract_autonomous_delay("Обычный текст")
+        assert text == "Обычный текст"
+        assert delay is None
+        assert is_manual is False
+
+    def test_empty_string(self):
+        """Пустая строка → пустая строка."""
+        text, delay, is_manual = extract_autonomous_delay("")
+        assert text == ""
+        assert delay is None
+        assert is_manual is False
+
+    def test_tag_not_at_end(self):
+        """Тег в середине текста → не должен сработать."""
+        original = "Начало [DELAY: 60] и продолжение"
+        text, delay, is_manual = extract_autonomous_delay(original)
+        assert text == original
+        assert delay is None
+        assert is_manual is False
+
+    def test_delay_zero(self):
+        """[DELAY: 0] → граничный случай, задержка 0 секунд."""
+        text, delay, is_manual = extract_autonomous_delay("Мгновенно [DELAY: 0]")
+        assert text == "Мгновенно"
+        assert delay == 0
+        assert is_manual is False
+
+    def test_delay_large_value(self):
+        """[DELAY: 28800] → 8 часов."""
+        text, delay, is_manual = extract_autonomous_delay("Доброе утро [DELAY: 28800]")
+        assert text == "Доброе утро"
+        assert delay == 28800
+        assert is_manual is False
+
+    def test_trailing_whitespace(self):
+        """Пробелы после тега → всё равно парсится."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 30]  ")
+        assert text == "Текст"
+        assert delay == 30
+
+    def test_multiline_text(self):
+        """Многострочный текст с тегом в конце."""
+        text, delay, is_manual = extract_autonomous_delay("Строка 1\nСтрока 2 [DELAY: 15]")
+        assert text == "Строка 1\nСтрока 2"
+        assert delay == 15

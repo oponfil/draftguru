@@ -7,8 +7,8 @@ import traceback
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
 from telegram.ext import ContextTypes
 
-from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, FREE_LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES, DEFAULT_LANGUAGE_CODE
-from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string
+from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, FREE_LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES, DEFAULT_LANGUAGE_CODE, CHAT_AUTONOMOUS_SENTINEL
+from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string, get_effective_auto_reply, extract_autonomous_delay
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
@@ -200,6 +200,9 @@ async def _process_text(
             style = user_settings.get("style", "userlike")
             tz_offset = user_settings.get("tz_offset", 0) or 0
             
+            auto_reply = get_effective_auto_reply(user_settings, chat_id)
+            is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
+            
             gen_kwargs = {
                 "system_prompt": build_draft_prompt(
                     has_history=False,
@@ -207,6 +210,7 @@ async def _process_text(
                     style=style,
                     local_time_str=get_local_time_string(tz_offset),
                     language_code=u.language_code or DEFAULT_LANGUAGE_CODE,
+                    is_autonomous=is_auto,
                 ),
             }
             model = get_effective_model(user_settings, style)
@@ -221,7 +225,21 @@ async def _process_text(
             draft_text = await generate_response(user_msg_text, **gen_kwargs)
             
             if draft_text and draft_text.strip():
-                await register_bot_draft_and_schedule(u.id, chat_id, draft_text.strip(), user_settings, style)
+                draft_text = draft_text.strip()
+                dynamic_delay = None
+                skip_auto_reply = False
+                
+                if is_auto:
+                    draft_text, extracted_delay, is_manual = extract_autonomous_delay(draft_text)
+                    if is_manual or extracted_delay is None:
+                        skip_auto_reply = True
+                    else:
+                        dynamic_delay = extracted_delay
+                
+                await register_bot_draft_and_schedule(
+                    u.id, chat_id, draft_text, user_settings, style,
+                    skip_auto_reply=skip_auto_reply, dynamic_delay=dynamic_delay
+                )
                 
                 success_msg = (await get_system_message(u.language_code, "cold_outreach_success")).format(username=raw_username)
                 await status_msg.edit_text(success_msg)

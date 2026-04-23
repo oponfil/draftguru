@@ -42,9 +42,10 @@ class _GlobalStats:
     auto_replies_sent: int = 0
     bot_replies: int = 0
 
-    # Голосовые и фото
+    # Голосовые, фото и видео
     voice_transcriptions: int = 0
     photo_recognitions: int = 0
+    video_recognitions: int = 0
 
     # Команды
     commands: dict[str, int] = field(default_factory=dict)
@@ -167,6 +168,11 @@ def record_photo_recognition() -> None:
     _stats.photo_recognitions += 1
 
 
+def record_video_recognition() -> None:
+    """Записывает успешное распознавание видео."""
+    _stats.video_recognitions += 1
+
+
 def record_command(command: str) -> None:
     """Записывает использование команды бота."""
     _stats.commands[command] = _stats.commands.get(command, 0) + 1
@@ -254,9 +260,10 @@ def get_stats() -> dict[str, Any]:
         "draft_styles": dict(_stats.draft_styles),
         "auto_replies_sent": _stats.auto_replies_sent,
         "bot_replies": _stats.bot_replies,
-        # Голосовые и фото
+        # Голосовые, фото и видео
         "voice_transcriptions": _stats.voice_transcriptions,
         "photo_recognitions": _stats.photo_recognitions,
+        "video_recognitions": _stats.video_recognitions,
         # Команды
         "commands": dict(_stats.commands),
         # Здоровье

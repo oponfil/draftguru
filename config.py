@@ -50,19 +50,24 @@ FREE_LLM_MODEL = "google/gemini-3.1-flash-lite-preview"  # FREE-модель (п
 PHOTO_ANALYSIS_MODEL = "google/gemini-3.1-flash-lite-preview"  # Модель для распознавания фото
 FALLBACK_MODEL = "google/gemini-3.1-flash-lite-preview"  # Резервная модель при отказах и цензурных фильтрах PRO-моделей
 # PRO-модель для каждого стиля. Используется при pro_model=True.
+#openai/gpt-5.4   google/gemini-3.1-pro-preview   anthropic/claude-opus-4.7   z-ai/glm-5.1   qwen/qwen3.6-plus
 STYLE_PRO_MODELS: dict[str, str] = {
-    "userlike": "z-ai/glm-5.1",    #openai/gpt-5.4
+    "userlike": "z-ai/glm-5.1",
     "friend": "z-ai/glm-5.1",
     "romance": "z-ai/glm-5.1",
-    "seducer": "z-ai/glm-5.1", #google/gemini-3.1-pro-preview
-    "business": "z-ai/glm-5.1", #anthropic/claude-opus-4.7
+    "seducer": "z-ai/glm-5.1",
+    "business": "z-ai/glm-5.1",
     "sales": "z-ai/glm-5.1",
     "paranoid": "z-ai/glm-5.1",
 }
+# Модель для быстрой пост-модерации отказов (дешевая и быстрая)
+MODERATION_MODEL = "qwen/qwen3.5-flash-02-23"
 # Уровень reasoning для конкретных моделей (minimal/low/medium/high).
 # Если модели нет в словаре — используется "medium" по умолчанию.
 MODEL_REASONING_EFFORT: dict[str, str] = {
     "google/gemini-3.1-pro-preview": "low",
+    "qwen/qwen3.5-flash-02-23": "low",
+    "qwen/qwen3.6-plus": "low",
 }
 
 # ====== VISION / MEDIA ======
@@ -79,7 +84,7 @@ SYSTEM_MESSAGE_TRANSLATION_TIMEOUT = 60
 SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS = 300.0
 
 # ====== КОНТЕКСТ ======
-MAX_CONTEXT_MESSAGES = 30  # Макс. кол-во сообщений из чата для контекста (черновики)
+MAX_CONTEXT_MESSAGES = 50  # Макс. кол-во сообщений из чата для контекста (черновики)
 MAX_CONTEXT_CHARS = 5000  # Макс. суммарная длина текста в истории (символы)
 AUTO_REPLY_MAX_CONTEXT_MESSAGES = 150  # Макс. кол-во сообщений для режима автоответа
 AUTO_REPLY_MAX_CONTEXT_CHARS = 15000  # Макс. суммарная длина текста для автоответа
@@ -117,9 +122,11 @@ STICKER_FALLBACK_EMOJI = "□"  # Fallback для стикеров без при
 # ====== АВТООТВЕТ ======
 # {секунды: ключ сообщения} — None = выключено (по умолчанию)
 CHAT_IGNORED_SENTINEL = -1  # Sentinel: чат полностью игнорируется (нет черновиков и автоответа)
+CHAT_AUTONOMOUS_SENTINEL = -2  # Sentinel: автономный режим (модель сама решает когда отправить)
 AUTO_REPLY_OPTIONS: dict[int | None, str] = {
     None: "auto_reply_off",
     CHAT_IGNORED_SENTINEL: "auto_reply_ignore",
+    CHAT_AUTONOMOUS_SENTINEL: "auto_reply_autonomous",
     60: "auto_reply_1m",
     900: "auto_reply_15m",
     57600: "auto_reply_16h",

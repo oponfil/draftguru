@@ -13,7 +13,7 @@ from config import (
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
     EMOJI_TO_STYLE, IGNORED_CHAT_IDS, MAX_REGENERATIONS, DEFAULT_LANGUAGE_CODE,
     MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, AUTO_REPLY_MAX_CONTEXT_MESSAGES, AUTO_REPLY_MAX_CONTEXT_CHARS,
-    TELEGRAM_MAX_GET_FILE_SIZE,
+    TELEGRAM_MAX_GET_FILE_SIZE, CHAT_AUTONOMOUS_SENTINEL,
 )
 from utils.utils import (
     format_chat_history,
@@ -27,11 +27,13 @@ from utils.utils import (
     serialize_user_updates,
     typing_action,
     get_local_time_string,
+    extract_autonomous_delay,
 )
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
 from dashboard import stats as dash_stats
 from logic.reply import generate_reply
+from logic.moderation import check_if_refusal
 from clients import pyrogram_client
 from database.users import clear_session, get_user, update_chat_style, update_last_msg_at
 from system_messages import get_system_message
@@ -270,6 +272,10 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
     if not text and message.photo:
         text = "[photo]"
 
+    # Видео/кружочек без подписи — ставим заглушку
+    if not text and (message.video or message.video_note):
+        text = "[video]"
+
     if not text:
         return
 
@@ -313,8 +319,7 @@ async def on_pyrogram_message(user_id: int, pyrogram_client_instance, message) -
             if file_bytes:
                 video_desc = await analyze_video_bytes(file_bytes.getvalue())
                 if video_desc:
-                    # Пока используем ту же метрику и тот же кэш (его ключом является unique_id)
-                    dash_stats.record_photo_recognition()
+                    dash_stats.record_video_recognition()
                     pyrogram_client.cache_photo_description(vid.file_unique_id, video_desc)
         except Exception as e:
             print(f"{get_timestamp()} [VISION] ERROR processing video for user {user_id}: {e}")
@@ -475,9 +480,12 @@ async def _run_generation_loop(
             kwargs["model"] = model
         custom_prompt = get_effective_prompt(user_settings, chat_id)
         tz_offset = user_settings.get("tz_offset", 0) or 0
+        auto_reply = get_effective_auto_reply(user_settings, chat_id)
+        is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
         reply_text = await generate_reply(
             history, user, effective_opponent,
             custom_prompt=custom_prompt, style=style, tz_offset=tz_offset,
+            is_autonomous=is_auto,
             **kwargs,
         )
 
@@ -489,20 +497,36 @@ async def _run_generation_loop(
             )
             continue
 
+        skip_auto_reply = False
+        dynamic_delay = None
+        if reply_text and reply_text.strip():
+            if is_auto:
+                reply_text, extracted_delay, is_manual = extract_autonomous_delay(reply_text)
+                if is_manual or extracted_delay is None:
+                    skip_auto_reply = True
+                else:
+                    dynamic_delay = extracted_delay
+
+            elif auto_reply and auto_reply > 0:
+                if await check_if_refusal(reply_text):
+                    skip_auto_reply = True
+
         if not reply_text or not reply_text.strip():
             if clear_probe:
                 await clear_probe()
             return False
 
         ai_text = reply_text.strip()
-        await register_bot_draft_and_schedule(user_id, chat_id, ai_text, user_settings, style)
+        await register_bot_draft_and_schedule(user_id, chat_id, ai_text, user_settings, style, skip_auto_reply=skip_auto_reply, dynamic_delay=dynamic_delay)
 
         return True
 
     return False
 
 
-async def register_bot_draft_and_schedule(user_id: int, chat_id: int, ai_text: str, user_settings: dict, style: str) -> None:
+async def register_bot_draft_and_schedule(
+    user_id: int, chat_id: int, ai_text: str, user_settings: dict, style: str, skip_auto_reply: bool = False, dynamic_delay: int | None = None
+) -> None:
     """Устанавливает черновик от лица бота, регистрирует его и планирует автоответ."""
     key = (user_id, chat_id)
     _bot_drafts[key] = ai_text
@@ -514,7 +538,8 @@ async def register_bot_draft_and_schedule(user_id: int, chat_id: int, ai_text: s
     dash_stats.record_draft(style)
     asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
-    _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
+    if not skip_auto_reply:
+        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text, dynamic_delay)
 
 
 async def _generate_reply_for_chat(
@@ -599,16 +624,21 @@ def get_replied_chats(user_id: int) -> set[int]:
 
 
 def _maybe_schedule_auto_reply(
-    user_settings: dict, user_id: int, chat_id: int, text: str,
+    user_settings: dict, user_id: int, chat_id: int, text: str, dynamic_delay: int | None = None
 ) -> None:
     """Запускает таймер автоответа, если per-chat или глобальный auto_reply включён."""
     # Global ignore: Saved Messages + системные чаты — без обращения к БД
     if chat_id == user_id or chat_id in IGNORED_CHAT_IDS:
         return
+    
+    if dynamic_delay is not None:
+        _schedule_auto_reply(user_id, chat_id, text, dynamic_delay, jitter=False)
+        return
+
     # Per-user ignore: sentinel -1 не пройдёт > 0 проверку
     auto_reply = get_effective_auto_reply(user_settings, chat_id)
     if auto_reply and auto_reply > 0:
-        _schedule_auto_reply(user_id, chat_id, text, auto_reply)
+        _schedule_auto_reply(user_id, chat_id, text, auto_reply, jitter=True)
 
 
 def _cancel_auto_reply(key: tuple[int, int]) -> None:
@@ -618,19 +648,19 @@ def _cancel_auto_reply(key: tuple[int, int]) -> None:
         task.cancel()
 
 
-def _schedule_auto_reply(user_id: int, chat_id: int, text: str, base_seconds: int) -> None:
+def _schedule_auto_reply(user_id: int, chat_id: int, text: str, base_seconds: int, jitter: bool = True) -> None:
     """Запускает таймер автоответа, отменяя предыдущий."""
     key = (user_id, chat_id)
     _cancel_auto_reply(key)
-    task = asyncio.create_task(_auto_reply_worker(user_id, chat_id, text, base_seconds))
+    task = asyncio.create_task(_auto_reply_worker(user_id, chat_id, text, base_seconds, jitter=jitter))
     _auto_reply_tasks[key] = task
 
 
-async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds: int) -> None:
+async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds: int, jitter: bool = True) -> None:
     """Ждёт таймаут и отправляет сообщение, если черновик не изменился."""
     key = (user_id, chat_id)
     try:
-        delay = base_seconds + random.uniform(0, base_seconds)
+        delay = base_seconds + random.uniform(0, min(base_seconds, 60)) if jitter else base_seconds
         await asyncio.sleep(delay)
 
         # Проверяем: черновик всё ещё наш?
@@ -821,6 +851,9 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         # Генерируем ответ
         style = get_effective_style(user_settings, chat_id)
         tz_offset = user_settings.get("tz_offset", 0) or 0
+        auto_reply = get_effective_auto_reply(user_settings, chat_id)
+        is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
+        
         gen_kwargs: dict = {
             "user_message": user_message,
             "system_prompt": build_draft_prompt(
@@ -829,6 +862,7 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
                 style=style,
                 local_time_str=get_local_time_string(tz_offset),
                 language_code=lang or DEFAULT_LANGUAGE_CODE,
+                is_autonomous=is_auto,
             ),
         }
         model = get_effective_model(user_settings, style)
@@ -840,6 +874,21 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
         # Устанавливаем черновик с AI-ответом и запоминаем
         ai_text = response.strip()
+        
+        skip_auto_reply = False
+        dynamic_delay = None
+        
+        if is_auto:
+            ai_text, extracted_delay, is_manual = extract_autonomous_delay(ai_text)
+            if is_manual or extracted_delay is None:
+                skip_auto_reply = True
+            else:
+                dynamic_delay = extracted_delay
+                
+        elif auto_reply and auto_reply > 0:
+            if await check_if_refusal(ai_text):
+                skip_auto_reply = True
+
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text
         await pyrogram_client.set_draft(user_id, chat_id, ai_text)
@@ -850,7 +899,8 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         asyncio.create_task(_verify_draft_delivery(user_id, chat_id, ai_text))
 
         # Запускаем таймер автоответа
-        _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text)
+        if not skip_auto_reply:
+            _maybe_schedule_auto_reply(user_settings, user_id, chat_id, ai_text, dynamic_delay=dynamic_delay)
 
     except Exception as e:
         print(f"{get_timestamp()} [DRAFT] ERROR processing draft for user {user_id}: {e}")
@@ -1007,6 +1057,11 @@ async def poll_follow_ups(user_id: int) -> int:
                 custom_prompt=effective_prompt, style=style, tz_offset=tz_offset,
                 **kwargs,
             )
+            
+            if reply_text and reply_text.strip():
+                if await check_if_refusal(reply_text):
+                    continue
+                    
             if not reply_text or not reply_text.strip():
                 continue
 

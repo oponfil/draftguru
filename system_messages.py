@@ -104,6 +104,7 @@ SYSTEM_MESSAGES = {
     "auto_reply_15m": "⚠️ 15 min",
     "auto_reply_16h": "⚠️ 16 hours",
     "auto_reply_ignore": "🔇 Ignore",
+    "auto_reply_autonomous": "🤖 AI Decides",
 
     # — Follow-up labels (base, without prefix) —
     "follow_up_prefix": "🔄 Auto-poke:",

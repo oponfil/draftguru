@@ -1,6 +1,7 @@
 # utils/utils.py — Утилиты общего назначения (форматирование, декораторы, стили)
 
 import asyncio
+import re
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -135,6 +136,34 @@ def format_profile(info: dict | None, label: str) -> str:
         name += f" {last}"
 
     return name if name else label
+
+
+def extract_autonomous_delay(text: str) -> tuple[str, int | None, bool]:
+    """Извлекает автономную задержку из текста ответа LLM.
+    
+    Ищет тег [DELAY: X] или [DELAY: MANUAL] в конце текста.
+    
+    Returns:
+        (clean_text, delay_seconds, is_manual)
+    """
+    if not text:
+        return text, None, False
+        
+    pattern = r"\[DELAY:\s*(MANUAL|\d+)\]\s*$"
+    match = re.search(pattern, text)
+    if not match:
+        return text, None, False
+        
+    value = match.group(1)
+    clean_text = text[:match.start()].strip()
+    
+    if value == "MANUAL":
+        return clean_text, None, True
+        
+    try:
+        return clean_text, int(value), False
+    except ValueError:
+        return clean_text, None, False
 
 
 def format_chat_history(

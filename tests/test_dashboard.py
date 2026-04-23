@@ -70,6 +70,12 @@ class TestDashboardStats:
         stats.record_photo_recognition()
         assert stats._stats.photo_recognitions == 2
 
+    def test_record_video_recognition(self) -> None:
+        """Счётчик распознавания видео."""
+        stats.record_video_recognition()
+        stats.record_video_recognition()
+        assert stats._stats.video_recognitions == 2
+
     def test_record_command(self) -> None:
         """Счётчик команд."""
         stats.record_command("/start")

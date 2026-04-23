@@ -1860,3 +1860,122 @@ class TestDefaultProModelRuntime:
         assert "model" in call_kwargs, "Empty settings should use PRO model by default"
 
 
+class TestAutonomousAutoReply:
+    """Тесты для автономного режима автоответа (CHAT_AUTONOMOUS_SENTINEL)."""
+
+    def _make_message(self, chat_id=456):
+        """Создаёт mock incoming message."""
+        message = MagicMock()
+        message.text = "Hello"
+        message.outgoing = False
+        message.from_user = MagicMock()
+        message.from_user.is_bot = False
+        message.from_user.first_name = "Test"
+        message.photo = None
+        message.video = None
+        message.video_note = None
+        message.chat = MagicMock()
+        message.chat.id = chat_id
+        message.chat.type = MagicMock(value="private")
+        return message
+
+    @pytest.mark.asyncio
+    async def test_autonomous_delay_schedules_exact_seconds(self):
+        """Ответ с [DELAY: 30] → dynamic_delay=30, jitter=False."""
+        message = self._make_message()
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_gen.return_value = "Привет! [DELAY: 30]"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        # Черновик установлен без тега [DELAY: ...]
+        mock_pc.set_draft.assert_any_call(123, 456, "Привет!")
+        # Планировщик вызван с exact delay, без jitter
+        mock_schedule.assert_called_once_with(123, 456, "Привет!", 30, jitter=False)
+
+    @pytest.mark.asyncio
+    async def test_autonomous_manual_skips_auto_reply(self):
+        """Ответ с [DELAY: MANUAL] → skip_auto_reply=True, таймер не запускается."""
+        message = self._make_message()
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Stop messaging me"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_gen.return_value = "Ок, извини [DELAY: MANUAL]"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        # Черновик установлен без тега
+        mock_pc.set_draft.assert_any_call(123, 456, "Ок, извини")
+        # Таймер НЕ запускался
+        mock_schedule.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_autonomous_missing_tag_skips_auto_reply(self):
+        """Ответ без тега → skip_auto_reply=True (безопасный fallback)."""
+        message = self._make_message()
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_gen.return_value = "Просто ответ без тега"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        # Черновик установлен
+        mock_pc.set_draft.assert_any_call(123, 456, "Просто ответ без тега")
+        # Таймер НЕ запускался (безопасный fallback → manual)
+        mock_schedule.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_autonomous_passes_is_autonomous_to_generate_reply(self):
+        """auto_reply=-2 → generate_reply вызывается с is_autonomous=True."""
+        message = self._make_message()
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
+             patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
+             patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
+            mock_pc.read_chat_history = AsyncMock(return_value=[
+                {"role": "other", "text": "Hello"}
+            ])
+            mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.get_draft = AsyncMock(return_value=None)
+            mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_gen.return_value = "Ответ [DELAY: 10]"
+
+            await on_pyrogram_message(123, MagicMock(), message)
+
+        call_kwargs = mock_gen.call_args.kwargs
+        assert call_kwargs["is_autonomous"] is True

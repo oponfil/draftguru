@@ -19,6 +19,7 @@ Auto-replies and follow-ups work in private chats only. Draft instructions work 
 - **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is dynamically limited: up to 30 messages (5,000 characters) for standard drafts, and up to 150 messages (15,000 characters) for auto-replies to provide deeper conversational context. Older messages are dropped.
 - **Saved Messages** (self-chat) and **Telegram service notifications** are fully ignored — the bot doesn't read, draft, or process messages in them. Additional chats can be excluded via `IGNORED_CHAT_IDS` in `config.py`.
 - Telegram sessions are encrypted with `Fernet` (`SESSION_ENCRYPTION_KEY`) before being stored in the database.
+- **AI Post-Moderation:** Auto-replies and follow-ups are protected by an ultra-fast secondary LLM check (e.g., Qwen 3.5 Flash) that intercepts "safety refusal" or moralizing responses from strictly aligned models. If an auto-generated response is flagged as a refusal, it is preserved in the draft input field but is **never sent automatically**.
 
 ## Quick Start
 
@@ -91,7 +92,7 @@ By default, `/connect` prompts for a phone number. A button below the message le
 | **Model** (🤖) | AI mode: FREE (Gemini 3.1 Flash Lite) or PRO. In PRO mode, the model is selected by communication style: GPT-5.4 for most styles, Gemini 3.1 Pro Preview for seducer. | PRO |
 | **Prompt** (📝) | Custom prompt: describe your persona and add instructions (max 600 chars). The AI uses this to build a *USER PROFILE & CUSTOM INSTRUCTIONS* block. **We recommend adding a self-description** — gender, age, occupation, and texting habits — so the AI mimics your style more accurately. Example: "I'm a 28 y/o guy, designer. I text short, 1–2 sentences, never use periods at the end. I swear a lot and use stickers." Applied to all chats. Applied to drafts and auto-replies. | ❌ OFF |
 | **Style** (🦉/🍻/💕/💼/💰/🕵️/😈) | Communication style: Userlike, Friend, Romance, Business, Sales, Paranoid, Seducer. Sets the tone and manner of replies (including direct bot chat). | 🦉 Userlike |
-| **Auto-reply** (⏰) | Auto-reply timer. If the user doesn't send the draft within the specified time, the bot sends the message itself. Options: OFF, 🔇 Ignore, 1 min, 15 min, 16 hours. **Ignore** disables drafts, auto-replies, and follow-ups by default for all chats, but any per-chat override in `/chats` still takes priority. Actual delay: from base to 2×base (e.g. 16 h → 16–32 h, avg 24 h). | OFF |
+| **Auto-reply** (⏰) | Auto-reply timer. If the user doesn't send the draft within the specified time, the bot sends the message itself. Options: OFF, 🔇 Ignore, 🤖 AI Decides, 1 min, 15 min, 16 hours. **Ignore** disables drafts, auto-replies, and follow-ups by default for all chats, but any per-chat override in `/chats` still takes priority. **AI Decides** lets the model calculate realistic typing/sleep time dynamically or fallback to manual review. Actual delay for fixed timers: from base to 2×base (e.g. 16 h → 16–32 h, avg 24 h). | OFF |
 | **Timezone** (🕐) | User timezone. The button shows the current time — tap to cycle through 30 popular UTC offsets (including +3:30, +4:30, +5:30, +9:30). Affects message timestamps in AI context. | UTC0 |
 
 ### Per-chat Settings (`/chats`)
@@ -143,7 +144,7 @@ DraftGuru includes a built-in monitoring dashboard — a single-page web UI with
 **Features:**
 - KPI cards: users (total / connected / active 24h), prepaid balance, balance spent
 - LLM stats: requests, tokens, latency, models, errors
-- Draft / auto-reply / voice counters
+- Counters: drafts, auto-replies, voice transcripts, photo and video recognitions
 - Live log viewer with filtering (All / Errors / Warnings) and Copy All
 - Auto-refresh every 5 seconds
 

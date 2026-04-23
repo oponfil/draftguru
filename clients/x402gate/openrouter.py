@@ -8,6 +8,7 @@ import json
 import os
 import time
 from datetime import datetime
+import copy
 
 from clients.x402gate import NonRetriableRequestError, TopupError, x402gate_client
 from config import (
@@ -40,18 +41,36 @@ def _log_to_file(
 
     os.makedirs(LOG_DIR, exist_ok=True)
 
+    request_data = copy.deepcopy(payload["messages"])
+    
+    # Truncate long base64 strings to save space in logs
+    for msg in request_data:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                part_type = part.get("type")
+                if part_type in ("image_url", "video_url") and part_type in part:
+                    url_obj = part[part_type]
+                    if isinstance(url_obj, dict) and "url" in url_obj:
+                        url_str = url_obj["url"]
+                        if "base64," in url_str:
+                            prefix, b64_data = url_str.split("base64,", 1)
+                            if len(b64_data) > 100:
+                                url_obj["url"] = f"{prefix}base64,{b64_data[:100]}...[TRUNCATED]"
+
     entry = {
         "timestamp": get_timestamp(),
         "model": model,
         "duration_s": round(duration, 2),
         "usage": usage,
-        "request": payload["messages"],
+        "request": request_data,
         "response": response_text,
     }
     if reasoning_text:
         entry["reasoning"] = reasoning_text
 
-    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_openrouter.log"
+    safe_model = model.split("/")[-1].replace(".", "_")
+    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_{safe_model}.log"
     filepath = os.path.join(LOG_DIR, filename)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -99,6 +118,7 @@ async def generate_response(
         "model": model,
         "messages": messages,
         "reasoning": {"effort": reasoning_effort},
+        "reasoning_effort": reasoning_effort,
     }
 
     api_path = "/v1/openrouter/chat/completions"

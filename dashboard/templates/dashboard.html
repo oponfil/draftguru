@@ -359,6 +359,7 @@
         <div class="summary-item">Auto-replies: <strong id="sum-autoreplies">0</strong></div>
         <div class="summary-item">Voice: <strong id="sum-voice">0</strong></div>
         <div class="summary-item">Photo: <strong id="sum-photo">0</strong></div>
+        <div class="summary-item">Video: <strong id="sum-video">0</strong></div>
         <div style="flex-basis:100%;height:0"></div>
         <div id="style-items" style="display:contents"><!-- Injected by JS --></div>
     </div>
@@ -618,6 +619,7 @@
                 document.getElementById('sum-autoreplies').textContent = stats.auto_replies_sent;
                 document.getElementById('sum-voice').textContent = stats.voice_transcriptions;
                 document.getElementById('sum-photo').textContent = stats.photo_recognitions || 0;
+                document.getElementById('sum-video').textContent = stats.video_recognitions || 0;
                 document.getElementById('sum-bot-replies').textContent = stats.bot_replies;
                 document.getElementById('sum-latency').textContent = stats.avg_latency_s + 's';
                 document.getElementById('sum-tokens-in').textContent = formatNumber(stats.total_tokens_in);

@@ -14,6 +14,7 @@ async def generate_reply(
     custom_prompt: str = "",
     style: str | None = None,
     tz_offset: float = 0,
+    is_autonomous: bool = False,
 ) -> str:
     """Генерирует ответ на основе контекста переписки.
 
@@ -25,6 +26,7 @@ async def generate_reply(
         custom_prompt: Пользовательский промпт из настроек
         style: Стиль общения (None = под пользователя)
         tz_offset: Смещение часового пояса пользователя (часы)
+        is_autonomous: Включен ли автономный режим автоответа (добавляет [DELAY: X] инструкции)
 
     Returns:
         Текст ответа от лица пользователя
@@ -38,6 +40,7 @@ async def generate_reply(
             custom_prompt=custom_prompt, 
             style=style,
             local_time_str=get_local_time_string(tz_offset),
+            is_autonomous=is_autonomous,
         ),
         "reasoning_effort": MODEL_REASONING_EFFORT.get(effective_model, "medium"),
     }

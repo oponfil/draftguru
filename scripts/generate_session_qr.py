@@ -2,8 +2,11 @@ import asyncio
 import os
 import sys
 
+import struct
+import base64
 import qrcode
 from telethon import TelegramClient
+from pyrogram.storage.storage import Storage
 
 # Добавляем корневую папку в sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -40,10 +43,6 @@ async def main():
 
         await qr.wait(timeout=60)
         print("\n✅ QR-код отсканирован, выгружаем сессию для Pyrogram...")
-
-        import struct
-        import base64
-        from pyrogram.storage.storage import Storage
 
         telethon_session = client.session
         dc_id = telethon_session.dc_id
