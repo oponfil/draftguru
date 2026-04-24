@@ -257,11 +257,10 @@ class TestExtractAutonomousDelay:
         assert is_manual is False
 
     def test_tag_not_at_end(self):
-        """Тег в середине текста → не должен сработать."""
-        original = "Начало [DELAY: 60] и продолжение"
-        text, delay, is_manual = extract_autonomous_delay(original)
-        assert text == original
-        assert delay is None
+        """Тег в середине текста → извлекается (case-insensitive, любое место)."""
+        text, delay, is_manual = extract_autonomous_delay("Начало [DELAY: 60] и продолжение")
+        assert text == "Начало  и продолжение"
+        assert delay == 60
         assert is_manual is False
 
     def test_delay_zero(self):

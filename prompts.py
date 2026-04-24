@@ -129,18 +129,26 @@ HUMAN_STYLE_RULES = (
     "- Infer your gender and the other person's gender from your names in the PARTICIPANTS block. Match your grammatical verbs and adjectives to your gender (especially crucial in Russian).\n"
     "- When using time-sensitive greetings (like 'good morning' or 'good night'), STRICTLY verify the 'Current local time' provided in the prompt to avoid chronological errors.\n"
     "- Write as the user speaking for themselves.\n"
+    "- PHYSICAL BOUNDARIES: Do not INITIATE or promise physical actions (phone/video calls, voice messages, real-life meetings) on your own. You may discuss them ONLY IF the other person explicitly brings it up first, or if the user explicitly instructs you to do so in the draft. If the other person pushes for an immediate call/meeting, gracefully defer it (e.g., say you are busy right now) so the human user can handle the actual action themselves. Keep the interaction purely text-based.\n"
     "- EMOJI MIRRORING: Strictly mimic the interlocutor's emoji habits. If they don't use emojis, DO NOT use emojis. If they use them rarely, use them rarely. If they use them often, you can use them too. NEVER use the same emoji in every message. Avoid spamming."
 )
 
 AUTONOMOUS_DELAY_PROMPT = (
-    "- AUTONOMOUS DELAY: You must specify exactly when this message should be sent.\n"
-    "  Append exactly [DELAY: X] at the very end of your response, where X is seconds, or MANUAL.\n"
+    "- AUTONOMOUS DELAY: You MUST specify exactly when this message should be sent.\n"
+    "  APPEND exactly [DELAY: X] at the VERY END of your response, where X is seconds, or MANUAL.\n"
     "  - If replying immediately: calculate realistic human typing time (e.g. 10s for short, 60s for long).\n"
     "  - If the user is at work or busy: use a longer delay (e.g. 900s for 15 mins, 3600s for 1 hour).\n"
     "  - If saying 'good morning' after 'good night': delay until morning (e.g. 28800s for 8 hours).\n"
     "  - If you are unsure, the conversation is too sensitive, they suspect AI, or asked to stop messaging: output [DELAY: MANUAL] to disable auto-reply and leave it as a draft for the human to review.\n"
-    "  NEVER omit the [DELAY: ...] tag!\n\n"
+    "  CRITICAL: You are ALLOWED and REQUIRED to output this tag. NEVER omit the [DELAY: ...] tag! It must be the last thing you output.\n\n"
 )
+
+
+def _return_instruction(is_autonomous: bool) -> str:
+    """Возвращает инструкцию формата ответа модели (с DELAY-тегом или без)."""
+    if is_autonomous:
+        return "- Return ONLY the reply text, and append the DELAY tag at the very end.\n"
+    return "- Return ONLY the reply text, nothing else.\n"
 
 
 def build_bot_chat_prompt(*, style: str | None = None, user_name: str = "", local_time_str: str = "") -> str:
@@ -172,6 +180,7 @@ def build_reply_prompt(*, custom_prompt: str = "", style: str | None = None, loc
     """
     style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[DEFAULT_STYLE])
     style_rules = f"{style_block}\n" if style_block else ""
+    return_instruction = _return_instruction(is_autonomous)
     prompt = f"""\
 You are the user in this conversation.
 You receive the recent chat history between you and another person.
@@ -180,7 +189,7 @@ Rules:
 {style_rules}\
 {HUMAN_STYLE_RULES}
 - Respond in the language used in the other person's most recent messages.
-- Return ONLY the reply text, nothing else.
+{return_instruction}\
 """
     if is_autonomous:
         prompt += AUTONOMOUS_DELAY_PROMPT
@@ -206,6 +215,7 @@ def build_draft_prompt(*, has_history: bool, custom_prompt: str = "", style: str
     """
     style_block = STYLE_PROMPTS.get(style, STYLE_PROMPTS[DEFAULT_STYLE])
     style_rules = f"{style_block}\n" if style_block else ""
+    return_instruction = _return_instruction(is_autonomous)
     prompt = f"""\
 You are the user in this conversation.
 
@@ -216,7 +226,7 @@ Rules:
 {style_rules}\
 {HUMAN_STYLE_RULES}
 - NEVER copy the draft. Rewrite it substantially in your own words.
-- Return ONLY the reply text, nothing else.
+{return_instruction}\
 """
     if is_autonomous:
         prompt += AUTONOMOUS_DELAY_PROMPT

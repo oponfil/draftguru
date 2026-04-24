@@ -141,7 +141,7 @@ def format_profile(info: dict | None, label: str) -> str:
 def extract_autonomous_delay(text: str) -> tuple[str, int | None, bool]:
     """Извлекает автономную задержку из текста ответа LLM.
     
-    Ищет тег [DELAY: X] или [DELAY: MANUAL] в конце текста.
+    Ищет тег [DELAY: X] или [DELAY: MANUAL] в любом месте текста (без учета регистра).
     
     Returns:
         (clean_text, delay_seconds, is_manual)
@@ -149,13 +149,13 @@ def extract_autonomous_delay(text: str) -> tuple[str, int | None, bool]:
     if not text:
         return text, None, False
         
-    pattern = r"\[DELAY:\s*(MANUAL|\d+)\]\s*$"
-    match = re.search(pattern, text)
+    pattern = r"\[DELAY:\s*(MANUAL|\d+)\]"
+    match = re.search(pattern, text, re.IGNORECASE)
     if not match:
         return text, None, False
         
-    value = match.group(1)
-    clean_text = text[:match.start()].strip()
+    value = match.group(1).upper()
+    clean_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
     
     if value == "MANUAL":
         return clean_text, None, True
