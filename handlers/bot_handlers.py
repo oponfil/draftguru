@@ -8,7 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
 from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, FREE_LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES, DEFAULT_LANGUAGE_CODE, CHAT_AUTONOMOUS_SENTINEL
-from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string, get_effective_auto_reply, extract_autonomous_delay
+from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string, get_effective_auto_reply, extract_autonomous_delay, calculate_fallback_delay
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
@@ -221,7 +221,7 @@ async def _process_text(
                 user_msg_text = f"INSTRUCTION: {instruction}"
             else:
                 user_msg_text = await get_system_message(u.language_code, "cold_outreach_default_instruction")
-                
+
             draft_text = await generate_response(user_msg_text, **gen_kwargs)
             
             if draft_text and draft_text.strip():
@@ -231,8 +231,10 @@ async def _process_text(
                 
                 if is_auto:
                     draft_text, extracted_delay, is_manual = extract_autonomous_delay(draft_text)
-                    if is_manual or extracted_delay is None:
+                    if is_manual:
                         skip_auto_reply = True
+                    elif extracted_delay is None:
+                        dynamic_delay = calculate_fallback_delay()
                     else:
                         dynamic_delay = extracted_delay
                 

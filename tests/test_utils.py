@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from utils.utils import get_timestamp, typing_action, format_profile, format_chat_history, extract_autonomous_delay
+from utils.utils import (
+    extract_autonomous_delay,
+    format_chat_history,
+    format_profile,
+    get_local_time_string,
+    get_timestamp,
+    typing_action,
+)
 
 
 class TestGetTimestamp:
@@ -288,3 +295,71 @@ class TestExtractAutonomousDelay:
         text, delay, is_manual = extract_autonomous_delay("Строка 1\nСтрока 2 [DELAY: 15]")
         assert text == "Строка 1\nСтрока 2"
         assert delay == 15
+
+    def test_suffix_s(self):
+        """[DELAY: 15s] → суффикс 's' игнорируется, задержка 15."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 15s]")
+        assert text == "Текст"
+        assert delay == 15
+        assert is_manual is False
+
+    def test_suffix_sec(self):
+        """[DELAY: 30 sec] → суффикс 'sec' игнорируется."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 30 sec]")
+        assert text == "Текст"
+        assert delay == 30
+
+    def test_suffix_seconds(self):
+        """[DELAY: 60 seconds] → суффикс 'seconds' игнорируется."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 60 seconds]")
+        assert text == "Текст"
+        assert delay == 60
+
+    def test_suffix_case_insensitive(self):
+        """[DELAY: 10S] → суффикс в верхнем регистре."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 10S]")
+        assert text == "Текст"
+        assert delay == 10
+
+    def test_malformed_repetition(self):
+        """[DELAY: 15ждууу 🖤 [DELAY: 15] → извлекает 15, удаляет сломанный тег и повторения."""
+        text, delay, is_manual = extract_autonomous_delay("ждууу 🖤 [DELAY: 15ждууу 🖤 [DELAY: 15]")
+        assert text == "ждууу 🖤"
+        assert delay == 15
+        assert is_manual is False
+
+    def test_suffix_minutes_short(self):
+        """[DELAY: 5m] → 5 минут, конвертируется в 300 секунд."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 5m]")
+        assert text == "Текст"
+        assert delay == 300
+        assert is_manual is False
+
+    def test_suffix_minutes_full(self):
+        """[DELAY: 2 minutes] → 120 секунд."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 2 minutes]")
+        assert text == "Текст"
+        assert delay == 120
+
+    def test_suffix_min(self):
+        """[DELAY: 15 min] → 15 минут = 900 секунд."""
+        text, delay, is_manual = extract_autonomous_delay("Текст [DELAY: 15 min]")
+        assert text == "Текст"
+        assert delay == 900
+
+
+class TestGetLocalTimeString:
+    """Тесты для get_local_time_string()."""
+
+    def test_format_includes_weekday(self):
+        """Формат содержит дату, время и название дня недели в скобках."""
+        result = get_local_time_string(0)
+        # Формат: "2026-03-14 12:00 (Saturday)"
+        pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \([A-Za-z]+\)$"
+        assert re.match(pattern, result), f"Unexpected format: {result}"
+
+    def test_tz_offset_shifts_time(self):
+        """tz_offset сдвигает время относительно UTC."""
+        plus_3 = get_local_time_string(3)
+        minus_3 = get_local_time_string(-3)
+        assert plus_3 != minus_3

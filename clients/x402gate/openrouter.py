@@ -33,7 +33,14 @@ class ContentFilterError(RuntimeError):
 
 
 def _log_to_file(
-    payload: dict, response_text: str, model: str, duration: float, usage: dict, reasoning_text: str = "",
+    payload: dict,
+    response_text: str,
+    model: str,
+    *,
+    duration: float,
+    usage: dict,
+    reasoning_text: str = "",
+    provider: str = "",
 ) -> None:
     """Записывает полный запрос и ответ в отдельный лог-файл."""
     if not LOG_TO_FILE:
@@ -61,6 +68,7 @@ def _log_to_file(
     entry = {
         "timestamp": get_timestamp(),
         "model": model,
+        "provider": provider,
         "duration_s": round(duration, 2),
         "usage": usage,
         "request": request_data,
@@ -85,6 +93,14 @@ async def generate_response(
     chat_history: list[dict] | None = None,
 ) -> str:
     """Генерирует ответ на сообщение пользователя через OpenRouter.
+
+    Стратегия retry/fallback:
+    - ContentFilterError: сразу переключаемся на FALLBACK_MODEL (повторный запрос
+      к той же модели не пройдёт фильтр).
+    - Empty response: один retry той же моделью (часто транзиентная проблема),
+      затем переключение на FALLBACK_MODEL.
+    - Прочие RuntimeError: экспоненциальные ретраи в пределах RETRY_ATTEMPTS.
+    - TopupError, NonRetriableRequestError, ValueError: без ретраев.
 
     Args:
         user_message: Текст сообщения пользователя
@@ -125,6 +141,7 @@ async def generate_response(
     start_time = time.time()
     last_error = None
     current_model = model
+    empty_response_count = 0
 
     # Retry с экспоненциальной задержкой
     for attempt in range(RETRY_ATTEMPTS + 1):
@@ -167,12 +184,14 @@ async def generate_response(
             reasoning_tokens = completion_details.get("reasoning_tokens", 0) or 0
             duration = time.time() - start_time
 
+            provider_name = result.get("provider", "Unknown")
+
             token_info = f"tokens: {input_tokens} → {output_tokens}"
             if reasoning_tokens:
                 token_info += f" (reasoning: {reasoning_tokens})"
 
             print(
-                f"{get_timestamp()} [OPENROUTER] {current_model} | "
+                f"{get_timestamp()} [OPENROUTER] {current_model} (via {provider_name}) | "
                 f"{duration:.2f}s | {token_info}"
             )
 
@@ -184,7 +203,11 @@ async def generate_response(
                 reasoning_tokens=reasoning_tokens,
             )
 
-            _log_to_file(payload, text.strip(), current_model, duration, usage, reasoning_text)
+            _log_to_file(
+                payload, text.strip(), current_model,
+                duration=duration, usage=usage,
+                reasoning_text=reasoning_text, provider=provider_name,
+            )
 
             return text.strip()
 
@@ -197,16 +220,33 @@ async def generate_response(
                 print(f"{get_timestamp()} [OPENROUTER] Non-retriable error: {e}")
                 break
 
-            # ContentFilterError или пустой ответ — обычно означает фильтр. Меняем на fallback если возможно.
-            is_filter_or_empty = isinstance(e, ContentFilterError) or (isinstance(e, RuntimeError) and "empty response" in str(e).lower())
-            
-            if is_filter_or_empty:
+            # ContentFilterError — сразу на fallback
+            if isinstance(e, ContentFilterError):
                 if current_model != FALLBACK_MODEL:
-                    print(f"{get_timestamp()} [OPENROUTER] Model {current_model} failed ({e}). Switching to fallback model {FALLBACK_MODEL}...")
+                    print(f"{get_timestamp()} [OPENROUTER] WARNING: Model {current_model} blocked by filter. Switching to fallback model {FALLBACK_MODEL}...")
                     current_model = FALLBACK_MODEL
+                    empty_response_count = 0
                     continue
                 else:
-                    print(f"{get_timestamp()} [OPENROUTER] Fallback model {current_model} also failed — not retrying: {e}")
+                    print(f"{get_timestamp()} [OPENROUTER] WARNING: Fallback model {current_model} also blocked — not retrying: {e}")
+                    break
+
+            is_empty_response = isinstance(e, RuntimeError) and "empty response" in str(e).lower()
+            
+            if is_empty_response:
+                empty_response_count += 1
+                if empty_response_count == 1 and attempt < RETRY_ATTEMPTS:
+                    print(f"{get_timestamp()} [OPENROUTER] WARNING: Model {current_model} returned empty response. Retrying once...")
+                    await asyncio.sleep(1.0)
+                    continue
+                
+                if current_model != FALLBACK_MODEL:
+                    print(f"{get_timestamp()} [OPENROUTER] WARNING: Model {current_model} failed with empty response twice. Switching to fallback model {FALLBACK_MODEL}...")
+                    current_model = FALLBACK_MODEL
+                    empty_response_count = 0
+                    continue
+                else:
+                    print(f"{get_timestamp()} [OPENROUTER] WARNING: Fallback model {current_model} also failed with empty response: {e}")
                     break
 
             if attempt < RETRY_ATTEMPTS:

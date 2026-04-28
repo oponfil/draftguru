@@ -34,7 +34,7 @@ from handlers.connect_handler import (
 from system_messages import SYSTEM_MESSAGES
 from utils.bot_utils import update_user_menu
 
-from config import CHAT_IGNORED_SENTINEL, DEFAULT_STYLE, STYLE_TO_EMOJI
+from config import AUTONOMOUS_FALLBACK_DELAY, CHAT_IGNORED_SENTINEL, DEFAULT_STYLE, STYLE_TO_EMOJI
 TYPING_TEXT = SYSTEM_MESSAGES["draft_typing"].format(emoji=STYLE_TO_EMOJI[DEFAULT_STYLE])
 REAL_ASYNCIO_SLEEP = asyncio.sleep
 
@@ -1888,6 +1888,7 @@ class TestAutonomousAutoReply:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.check_if_refusal", new_callable=AsyncMock, return_value=False), \
              patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
              patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
             mock_pc.read_chat_history = AsyncMock(return_value=[
@@ -1914,6 +1915,7 @@ class TestAutonomousAutoReply:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.check_if_refusal", new_callable=AsyncMock, return_value=False), \
              patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
              patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
             mock_pc.read_chat_history = AsyncMock(return_value=[
@@ -1932,14 +1934,15 @@ class TestAutonomousAutoReply:
         mock_schedule.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_autonomous_missing_tag_skips_auto_reply(self):
-        """Ответ без тега → skip_auto_reply=True (безопасный fallback)."""
+    async def test_autonomous_missing_tag_calculates_fallback_delay(self):
+        """Ответ без тега → вычисляется запасная задержка, автоответ срабатывает."""
         message = self._make_message()
 
         with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.check_if_refusal", new_callable=AsyncMock, return_value=False), \
              patch("handlers.pyrogram_handlers._schedule_auto_reply") as mock_schedule, \
              patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
             mock_pc.read_chat_history = AsyncMock(return_value=[
@@ -1954,8 +1957,8 @@ class TestAutonomousAutoReply:
 
         # Черновик установлен
         mock_pc.set_draft.assert_any_call(123, 456, "Просто ответ без тега")
-        # Таймер НЕ запускался (безопасный fallback → manual)
-        mock_schedule.assert_not_called()
+        # Таймер ЗАПУСКАЕТСЯ (безопасный fallback)
+        mock_schedule.assert_called_once_with(123, 456, "Просто ответ без тега", AUTONOMOUS_FALLBACK_DELAY, jitter=False)
 
     @pytest.mark.asyncio
     async def test_autonomous_passes_is_autonomous_to_generate_reply(self):
@@ -1966,6 +1969,7 @@ class TestAutonomousAutoReply:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_gen, \
              patch("handlers.pyrogram_handlers.get_user", new_callable=AsyncMock, return_value={"language_code": "en", "settings": {"auto_reply": -2}}), \
              patch("handlers.pyrogram_handlers.get_system_message", new_callable=AsyncMock, return_value=TYPING_TEXT), \
+             patch("handlers.pyrogram_handlers.check_if_refusal", new_callable=AsyncMock, return_value=False), \
              patch("handlers.pyrogram_handlers.asyncio.create_task", side_effect=_close_coroutine_task):
             mock_pc.read_chat_history = AsyncMock(return_value=[
                 {"role": "other", "text": "Hello"}

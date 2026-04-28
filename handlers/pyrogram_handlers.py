@@ -13,7 +13,7 @@ from config import (
     DRAFT_PROBE_DELAY, DRAFT_VERIFY_DELAY, DEFAULT_STYLE, STYLE_TO_EMOJI, STICKER_FALLBACK_EMOJI,
     EMOJI_TO_STYLE, IGNORED_CHAT_IDS, MAX_REGENERATIONS, DEFAULT_LANGUAGE_CODE,
     MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, AUTO_REPLY_MAX_CONTEXT_MESSAGES, AUTO_REPLY_MAX_CONTEXT_CHARS,
-    TELEGRAM_MAX_GET_FILE_SIZE, CHAT_AUTONOMOUS_SENTINEL,
+    TELEGRAM_MAX_GET_FILE_SIZE, CHAT_AUTONOMOUS_SENTINEL, FALLBACK_MODEL,
 )
 from utils.utils import (
     format_chat_history,
@@ -28,6 +28,7 @@ from utils.utils import (
     typing_action,
     get_local_time_string,
     extract_autonomous_delay,
+    calculate_fallback_delay,
 )
 from utils.bot_utils import update_user_menu
 from clients.x402gate.openrouter import generate_response
@@ -37,7 +38,7 @@ from logic.moderation import check_if_refusal
 from clients import pyrogram_client
 from database.users import clear_session, get_user, update_chat_style, update_last_msg_at
 from system_messages import get_system_message
-from prompts import build_draft_prompt
+from prompts import build_draft_prompt, format_user_instruction
 from utils.telegram_user import ensure_effective_user
 from clients.vision_client import analyze_photo_bytes, analyze_video_bytes
 from handlers.connect_handler import (
@@ -441,9 +442,44 @@ async def _extract_opponent_from_history(
 def _get_context_limits(user_settings: dict, chat_id: int) -> tuple[int, int]:
     """Возвращает (limit, max_chars) для read_chat_history в зависимости от режима автоответа."""
     auto_reply = get_effective_auto_reply(user_settings, chat_id)
-    if auto_reply and auto_reply > 0:
+    if auto_reply and (auto_reply > 0 or auto_reply == CHAT_AUTONOMOUS_SENTINEL):
         return AUTO_REPLY_MAX_CONTEXT_MESSAGES, AUTO_REPLY_MAX_CONTEXT_CHARS
     return MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS
+
+
+async def _post_process_reply(
+    reply_text: str | None,
+    *,
+    is_auto: bool,
+    auto_reply: int | None,
+) -> tuple[str | None, bool, int | None, bool]:
+    """Унифицированная пост-обработка ответа модели.
+
+    Извлекает [DELAY: ...] для автономного режима и проверяет soft-refusal.
+
+    Returns:
+        (reply_text, skip_auto_reply, dynamic_delay, is_refusal)
+    """
+    skip_auto_reply = False
+    dynamic_delay: int | None = None
+    is_refusal = False
+
+    if not reply_text or not reply_text.strip():
+        return reply_text, skip_auto_reply, dynamic_delay, is_refusal
+
+    if is_auto:
+        reply_text, extracted_delay, is_manual = extract_autonomous_delay(reply_text)
+        if is_manual:
+            skip_auto_reply = True
+        elif extracted_delay is None:
+            dynamic_delay = calculate_fallback_delay()
+        else:
+            dynamic_delay = extracted_delay
+        is_refusal = await check_if_refusal(reply_text)
+    elif auto_reply and auto_reply > 0:
+        is_refusal = await check_if_refusal(reply_text)
+
+    return reply_text, skip_auto_reply, dynamic_delay, is_refusal
 
 
 async def _run_generation_loop(
@@ -497,19 +533,28 @@ async def _run_generation_loop(
             )
             continue
 
-        skip_auto_reply = False
-        dynamic_delay = None
-        if reply_text and reply_text.strip():
-            if is_auto:
-                reply_text, extracted_delay, is_manual = extract_autonomous_delay(reply_text)
-                if is_manual or extracted_delay is None:
-                    skip_auto_reply = True
-                else:
-                    dynamic_delay = extracted_delay
+        # --- ПЕРВАЯ ПОПЫТКА (основная модель) ---
+        reply_text, skip_auto_reply, dynamic_delay, is_refusal = await _post_process_reply(
+            reply_text, is_auto=is_auto, auto_reply=auto_reply,
+        )
 
-            elif auto_reply and auto_reply > 0:
-                if await check_if_refusal(reply_text):
-                    skip_auto_reply = True
+        # --- ВТОРАЯ ПОПЫТКА (FALLBACK), если был отказ ---
+        if is_refusal and kwargs.get("model") != FALLBACK_MODEL:
+            print(f"{get_timestamp()} [PYROGRAM] Soft refusal detected. Retrying with FALLBACK_MODEL ({FALLBACK_MODEL})...")
+            kwargs["model"] = FALLBACK_MODEL
+            reply_text = await generate_reply(
+                history, user, effective_opponent,
+                custom_prompt=custom_prompt, style=style, tz_offset=tz_offset,
+                is_autonomous=is_auto,
+                **kwargs,
+            )
+            reply_text, skip_auto_reply, dynamic_delay, is_refusal = await _post_process_reply(
+                reply_text, is_auto=is_auto, auto_reply=auto_reply,
+            )
+
+        # Если даже фолбэк-модель отказалась — отключаем автоответ
+        if is_refusal:
+            skip_auto_reply = True
 
         if not reply_text or not reply_text.strip():
             if clear_probe:
@@ -842,18 +887,14 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         if history:
             tz_offset = user_settings.get("tz_offset", 0) or 0
             user_message = format_chat_history(history, user, opponent_info, tz_offset=tz_offset)
-            user_message += "\n\n"
-        user_message += (
-            f"\n\n[SYSTEM]: The user typed the following input:\n"
-            f"«{instruction}»"
-        )
+        user_message += format_user_instruction(instruction)
 
         # Генерируем ответ
         style = get_effective_style(user_settings, chat_id)
         tz_offset = user_settings.get("tz_offset", 0) or 0
         auto_reply = get_effective_auto_reply(user_settings, chat_id)
         is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
-        
+
         gen_kwargs: dict = {
             "user_message": user_message,
             "system_prompt": build_draft_prompt(
@@ -874,20 +915,14 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
 
         # Устанавливаем черновик с AI-ответом и запоминаем
         ai_text = response.strip()
-        
-        skip_auto_reply = False
-        dynamic_delay = None
-        
-        if is_auto:
-            ai_text, extracted_delay, is_manual = extract_autonomous_delay(ai_text)
-            if is_manual or extracted_delay is None:
-                skip_auto_reply = True
-            else:
-                dynamic_delay = extracted_delay
-                
-        elif auto_reply and auto_reply > 0:
-            if await check_if_refusal(ai_text):
-                skip_auto_reply = True
+
+        ai_text, skip_auto_reply, dynamic_delay, is_refusal = await _post_process_reply(
+            ai_text, is_auto=is_auto, auto_reply=auto_reply,
+        )
+        if is_refusal:
+            skip_auto_reply = True
+        if not ai_text or not ai_text.strip():
+            return
 
         _bot_drafts[key] = ai_text
         _bot_draft_echoes[key] = ai_text

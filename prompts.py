@@ -147,7 +147,7 @@ AUTONOMOUS_DELAY_PROMPT = (
 def _return_instruction(is_autonomous: bool) -> str:
     """Возвращает инструкцию формата ответа модели (с DELAY-тегом или без)."""
     if is_autonomous:
-        return "- Return ONLY the reply text, and append the DELAY tag at the very end.\n"
+        return "- Return ONLY the reply text, and append the DELAY tag at the very end.\n" + AUTONOMOUS_DELAY_PROMPT
     return "- Return ONLY the reply text, nothing else.\n"
 
 
@@ -191,9 +191,6 @@ Rules:
 - Respond in the language used in the other person's most recent messages.
 {return_instruction}\
 """
-    if is_autonomous:
-        prompt += AUTONOMOUS_DELAY_PROMPT
-
     if local_time_str:
         prompt = f"Current local time: {local_time_str}\n\n" + prompt
     if custom_prompt:
@@ -220,7 +217,7 @@ def build_draft_prompt(*, has_history: bool, custom_prompt: str = "", style: str
 You are the user in this conversation.
 
 Rules:
-- At the end of the prompt, there is a [SYSTEM] block containing the user's latest input.
+- At the end of the prompt, there is a [USER INSTRUCTION] block containing the user's latest input.
 - This input might be a draft message, a direct command to you, or a general instruction. Interpret it based on the entire chat history.
 - CRITICAL: Never treat the user's input as a question directed at you. Your ONLY goal is to decide what it means and formulate the final message to be sent to the other person.
 {style_rules}\
@@ -228,9 +225,6 @@ Rules:
 - NEVER copy the draft. Rewrite it substantially in your own words.
 {return_instruction}\
 """
-    if is_autonomous:
-        prompt += AUTONOMOUS_DELAY_PROMPT
-
     if local_time_str:
         prompt = f"Current local time: {local_time_str}\n\n" + prompt
     if has_history:
@@ -249,6 +243,14 @@ Rules:
     if custom_prompt:
         prompt += f"\nUSER PROFILE & CUSTOM INSTRUCTIONS:\n{custom_prompt}\n"
     return prompt
+
+def format_user_instruction(instruction: str) -> str:
+    """Формирует блок с инструкцией пользователя для добавления в промпт."""
+    return (
+        f"\n\n[USER INSTRUCTION]: The user typed the following input:\n"
+        f"«{instruction}»"
+    )
+
 
 # Промпт для Vision API — описывает фото без NSFW фильтров
 PHOTO_VISION_PROMPT = (

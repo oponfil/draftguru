@@ -95,14 +95,15 @@ class TestGenerateResponse:
         assert mock_client.request.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_content_filter_not_retried(self):
-        """finish_reason=content_filter → ContentFilterError без ретраев."""
+    async def test_content_filter_retried_with_fallback(self):
+        """finish_reason=content_filter → retry with FALLBACK_MODEL."""
         from clients.x402gate.openrouter import ContentFilterError
+        from config import FALLBACK_MODEL
 
         mock_result = {
             "data": {
                 "choices": [{
-                    "message": {"content": "Some text"},
+                    "message": {"content": ""},
                     "finish_reason": "content_filter",
                 }],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
@@ -116,34 +117,16 @@ class TestGenerateResponse:
             with pytest.raises(ContentFilterError, match="content_filter"):
                 await generate_response("Hi")
 
-        assert mock_client.request.call_count == 1
+        assert mock_client.request.call_count == 2
+        # Убеждаемся, что второй вызов был к FALLBACK_MODEL
+        second_call_payload = mock_client.request.call_args_list[1].args[1]
+        assert second_call_payload["model"] == FALLBACK_MODEL
 
     @pytest.mark.asyncio
-    async def test_content_filter_with_empty_content(self):
-        """finish_reason=content_filter с пустым content (типичный случай) → ContentFilterError."""
-        from clients.x402gate.openrouter import ContentFilterError
+    async def test_empty_response_retried_with_fallback(self):
+        """empty response → один retry той же моделью, затем переключение на FALLBACK_MODEL."""
+        from config import FALLBACK_MODEL
 
-        mock_result = {
-            "data": {
-                "choices": [{
-                    "message": {"content": ""},
-                    "finish_reason": "content_filter",
-                }],
-                "usage": {},
-            }
-        }
-
-        with patch("clients.x402gate.openrouter.x402gate_client") as mock_client:
-            mock_client.available = True
-            mock_client.request = AsyncMock(return_value=mock_result)
-
-            with pytest.raises(ContentFilterError, match="content_filter"):
-                await generate_response("Hi")
-
-        assert mock_client.request.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_empty_response_not_retried(self):
         mock_result = {"data": {"choices": [{"message": {"content": ""}}]}}
 
         with patch("clients.x402gate.openrouter.x402gate_client") as mock_client, \
@@ -154,7 +137,12 @@ class TestGenerateResponse:
             with pytest.raises(RuntimeError, match="empty response"):
                 await generate_response("Hi")
 
-        assert mock_client.request.call_count == 1
+        # 1: основная модель → empty (retry той же моделью)
+        # 2: основная модель → empty (переключение на fallback)
+        # 3: FALLBACK_MODEL → empty (выходим)
+        assert mock_client.request.call_count == 3
+        third_call_payload = mock_client.request.call_args_list[2].args[1]
+        assert third_call_payload["model"] == FALLBACK_MODEL
 
     @pytest.mark.asyncio
     async def test_retries_up_to_limit_for_retriable_errors(self):

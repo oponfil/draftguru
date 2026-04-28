@@ -49,6 +49,10 @@ from scripts.index_knowledge import main as index_knowledge  # noqa: E402
 
 PRIVATE_ONLY_FILTER = filters.ChatType.PRIVATE
 
+# Задержка перед стартом follow-up цикла (секунды) — предотвращает WinError 10035
+# при одновременном запуске сетевых задач со стартовым индексатором.
+STARTUP_FOLLOW_UP_DELAY = 5
+
 
 # ====== DASHBOARD: print() interceptor ======
 # Captures all print() output into the dashboard's rolling log buffer
@@ -189,6 +193,11 @@ async def _poll_follow_ups_loop() -> None:
     # Узнаем минимальный интервал из FOLLOW_UP_OPTIONS (отфильтровываем None и 0)
     valid_intervals = [k for k in FOLLOW_UP_OPTIONS.keys() if k is not None and k > 0]
     poll_interval = min(valid_intervals) if valid_intervals else 7200
+    
+    # Небольшая задержка, чтобы не создавать "thundering herd" и сетевые пики
+    # одновременно с запуском индексатора (предотвращает WinError 10035)
+    await asyncio.sleep(STARTUP_FOLLOW_UP_DELAY)
+
     while True:
         try:
             active_users = pyrogram_client.get_active_user_ids()

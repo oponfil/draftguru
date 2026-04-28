@@ -16,6 +16,7 @@ from config import (
     style_display_name,
     SYSTEM_MESSAGES_FALLBACK_TTL_SECONDS,
     SYSTEM_MESSAGE_TRANSLATION_TIMEOUT,
+    TRANSLATION_MODEL,
 )
 from prompts import TRANSLATE_MESSAGES_PROMPT
 from utils.utils import get_timestamp
@@ -201,7 +202,7 @@ async def translate_messages(messages: list[str], language_code: str) -> list[st
         )
 
         result_text = await asyncio.wait_for(
-            generate_response(prompt, system_prompt=None),
+            generate_response(prompt, model=TRANSLATION_MODEL, system_prompt=None),
             timeout=SYSTEM_MESSAGE_TRANSLATION_TIMEOUT,
         )
 

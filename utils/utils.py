@@ -8,7 +8,15 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Callable
 
-from config import AUTO_REPLY_OPTIONS, CHAT_IGNORED_SENTINEL, DEFAULT_PRO_MODEL, DEFAULT_STYLE, FOLLOW_UP_OPTIONS, STYLE_PRO_MODELS
+from config import (
+    AUTO_REPLY_OPTIONS,
+    AUTONOMOUS_FALLBACK_DELAY,
+    CHAT_IGNORED_SENTINEL,
+    DEFAULT_PRO_MODEL,
+    DEFAULT_STYLE,
+    FOLLOW_UP_OPTIONS,
+    STYLE_PRO_MODELS,
+)
 
 
 def get_effective_pro_model(settings: dict) -> bool:
@@ -43,7 +51,7 @@ def get_timestamp() -> str:
 def get_local_time_string(tz_offset: float = 0) -> str:
     """Возвращает текущее локальное время пользователя для промпта."""
     local_time = datetime.now(timezone.utc) + timedelta(hours=tz_offset)
-    return local_time.strftime("%Y-%m-%d %H:%M")
+    return local_time.strftime("%Y-%m-%d %H:%M (%A)")
 
 
 _TYPING_INTERVAL = 4  # Telegram сбрасывает индикатор ~5 сек; обновляем каждые 4
@@ -138,32 +146,50 @@ def format_profile(info: dict | None, label: str) -> str:
     return name if name else label
 
 
+_DELAY_PATTERN = re.compile(
+    r"\[DELAY:\s*(MANUAL|\d+)\s*(s|sec|seconds?|m|min|minutes?)?[^\[\]]*\]?",
+    re.IGNORECASE,
+)
+
+
 def extract_autonomous_delay(text: str) -> tuple[str, int | None, bool]:
     """Извлекает автономную задержку из текста ответа LLM.
-    
+
     Ищет тег [DELAY: X] или [DELAY: MANUAL] в любом месте текста (без учета регистра).
-    
+    Поддерживает суффиксы единиц: 's'/'sec'/'seconds' (по умолчанию), 'm'/'min'/'minutes'
+    (умножается на 60). Закрывающая скобка опциональна, чтобы вытаскивать значение
+    даже из «сломанных» тегов вида '[DELAY: 15ждууу [DELAY: 15]'.
+
     Returns:
         (clean_text, delay_seconds, is_manual)
     """
     if not text:
         return text, None, False
-        
-    pattern = r"\[DELAY:\s*(MANUAL|\d+)\]"
-    match = re.search(pattern, text, re.IGNORECASE)
+
+    match = _DELAY_PATTERN.search(text)
     if not match:
         return text, None, False
-        
+
     value = match.group(1).upper()
-    clean_text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-    
+    suffix = (match.group(2) or "").lower()
+    clean_text = _DELAY_PATTERN.sub("", text).strip()
+
     if value == "MANUAL":
         return clean_text, None, True
-        
+
     try:
-        return clean_text, int(value), False
+        seconds = int(value)
     except ValueError:
         return clean_text, None, False
+
+    if suffix.startswith("m"):
+        seconds *= 60
+    return clean_text, seconds, False
+
+
+def calculate_fallback_delay() -> int:
+    """Запасная задержка (секунды), если ИИ забыл вернуть тег DELAY."""
+    return AUTONOMOUS_FALLBACK_DELAY
 
 
 def format_chat_history(

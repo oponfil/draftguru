@@ -12,7 +12,18 @@ from pyrogram import Client, filters, raw
 from pyrogram.errors import FloodWait, Unauthorized
 from pyrogram.handlers import MessageHandler, RawUpdateHandler
 
-from config import PYROGRAM_API_ID, PYROGRAM_API_HASH, MAX_CONTEXT_MESSAGES, MAX_CONTEXT_CHARS, DEBUG_PRINT, VOICE_TRANSCRIPTION_DELAY, VOICE_TRANSCRIPTION_TIMEOUT, POLL_MISSED_DIALOGS_LIMIT, STICKER_FALLBACK_EMOJI
+from config import (
+    DEBUG_PRINT,
+    MAX_CONTEXT_CHARS,
+    MAX_CONTEXT_MESSAGES,
+    POLL_MISSED_DIALOGS_LIMIT,
+    PYROGRAM_API_HASH,
+    PYROGRAM_API_ID,
+    STARTUP_DIALOGS_WARMUP_LIMIT,
+    STICKER_FALLBACK_EMOJI,
+    VOICE_TRANSCRIPTION_DELAY,
+    VOICE_TRANSCRIPTION_TIMEOUT,
+)
 from database.users import clear_session
 from utils.utils import get_timestamp
 
@@ -42,6 +53,9 @@ _PROCESSED_IDS_MAX = 200
 # Кэш описаний фото (Vision): {file_unique_id: description}
 _photo_descriptions_cache: dict[str, str] = {}
 _PHOTO_CACHE_MAX = 500
+
+# Накладные расходы префиксов (дата, имя, роль) при подсчёте длины истории.
+_HISTORY_PER_MSG_OVERHEAD_CHARS = 40
 
 
 def cache_photo_description(file_unique_id: str, description: str) -> None:
@@ -184,6 +198,18 @@ async def start_listening(user_id: int, session_string: str) -> bool:
 
         _active_clients[user_id] = client
         print(f"{get_timestamp()} [PYROGRAM] Started listening for user {user_id}")
+
+        # Прогреваем кэш (access_hash), чтобы избежать PEER_ID_INVALID при запросах к истории.
+        # Изолируем ошибки: warmup не должен влиять на _consecutive_errors свежей сессии.
+        try:
+            await get_private_dialogs(user_id, limit=STARTUP_DIALOGS_WARMUP_LIMIT)
+        except Exception as warmup_error:
+            print(
+                f"{get_timestamp()} [PYROGRAM] WARNING: dialogs warmup failed for user {user_id}: "
+                f"{warmup_error}"
+            )
+        _consecutive_errors.pop(user_id, None)
+
         return True
 
     except Exception as e:
@@ -321,11 +347,12 @@ async def read_chat_history(user_id: int, chat_id: int, limit: int = MAX_CONTEXT
         # Переворачиваем — от старых к новым
         messages.reverse()
 
-        # Обрезаем по суммарной длине текста (убираем старые сообщения)
-        total_chars = sum(len(m["text"] or "") for m in messages)
+        # Обрезаем по суммарной длине текста (убираем старые сообщения).
+        # Учитываем накладные расходы префиксов (дата, имя, роль).
+        total_chars = sum(len(m["text"] or "") + _HISTORY_PER_MSG_OVERHEAD_CHARS for m in messages)
         while messages and total_chars > max_chars:
             removed = messages.pop(0)
-            total_chars -= len(removed["text"] or "")
+            total_chars -= len(removed["text"] or "") + _HISTORY_PER_MSG_OVERHEAD_CHARS
 
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [PYROGRAM] Read {len(messages)} messages from chat {chat_id}")
