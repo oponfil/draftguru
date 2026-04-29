@@ -24,7 +24,7 @@ from telegram.ext import (  # noqa: E402
 from config import BOT_TOKEN, BOT_READ_TIMEOUT, FOLLOW_UP_OPTIONS, POLL_MISSED_INTERVAL, DEBUG_PRINT  # noqa: E402
 from utils.utils import get_timestamp  # noqa: E402
 from clients import pyrogram_client  # noqa: E402
-from handlers.bot_handlers import on_start, on_start_connect_callback, on_text  # noqa: E402
+from handlers.bot_handlers import on_start, on_start_connect_callback, on_text, on_json_document  # noqa: E402
 from handlers.pyrogram_handlers import (  # noqa: E402
     on_disconnect, on_status,
     on_disconnect_confirm_callback, on_disconnect_cancel_callback,
@@ -128,6 +128,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_start_connect_callback, pattern=r"^start:connect$"))
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, handle_connect_text), group=0)
     app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.TEXT & ~filters.COMMAND, on_text), group=1)
+    app.add_handler(MessageHandler(PRIVATE_ONLY_FILTER & filters.Document.FileExtension("json"), on_json_document), group=1)
 
     # Глобальный обработчик ошибок
     app.add_error_handler(on_error)

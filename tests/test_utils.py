@@ -9,6 +9,7 @@ import pytest
 from utils.utils import (
     extract_autonomous_delay,
     format_chat_history,
+    format_participants,
     format_profile,
     get_local_time_string,
     get_timestamp,
@@ -230,6 +231,54 @@ class TestFormatChatHistory:
 
         result = format_chat_history(history, user_info, None)
         assert "You bio: Программист из РФ" in result
+
+
+class TestFormatParticipants:
+    """Тесты для format_participants()."""
+
+    def test_empty_inputs_produce_default_block(self):
+        result = format_participants()
+        assert result.startswith("PARTICIPANTS:")
+        assert "You: You" in result
+        assert "Them: Them" in result
+        assert "bio" not in result
+
+    def test_only_user_info(self):
+        result = format_participants(user_info={"first_name": "Alex", "bio": "engineer"})
+        assert "You: Alex" in result
+        assert "You bio: engineer" in result
+        assert "Them: Them" in result
+
+    def test_only_opponent_info(self):
+        result = format_participants(
+            opponent_info={"first_name": "Maria", "username": "maria", "bio": "designer"},
+        )
+        assert "Them: Maria" in result
+        assert "Them bio: designer" in result
+
+    def test_extends_them_with_chat_history_speakers(self):
+        """В групповых чатах список Them дополняется именами из истории."""
+        history = [
+            {"role": "user", "text": "hi"},
+            {"role": "other", "text": "hello", "name": "Alice"},
+            {"role": "other", "text": "yo", "name": "Bob", "last_name": "Smith"},
+            {"role": "other", "text": "again", "name": "Alice"},  # дубликат игнорится
+        ]
+        result = format_participants(chat_history=history)
+        assert "Them: Alice, Bob Smith" in result
+
+    def test_opponent_first_then_history(self):
+        history = [
+            {"role": "other", "text": "hi", "name": "Bob"},
+        ]
+        result = format_participants(
+            opponent_info={"first_name": "Alice", "username": "alice"},
+            chat_history=history,
+        )
+        them_line = next(line for line in result.splitlines() if line.startswith("Them:"))
+        assert "Alice" in them_line
+        assert "Bob" in them_line
+        assert them_line.index("Alice") < them_line.index("Bob")
 
 
 class TestExtractAutonomousDelay:

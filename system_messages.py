@@ -149,6 +149,24 @@ SYSTEM_MESSAGES = {
     "cold_outreach_not_found": "❌ User {username} not found or invalid.",
     "cold_outreach_not_connected": "❌ You need to connect your account first via /connect before generating drafts.",
     "cold_outreach_default_instruction": "Generate the first message.",
+
+    # — Batch Cold Outreach —
+    "batch_outreach_started": "⏳ Processing JSON file. This might take a while...",
+    "batch_outreach_success": "✅ Batch processing complete!\nSuccess: {success_count}\nNot found / Errors: {error_count}",
+    "batch_outreach_too_large": "❌ JSON file is too large (limit: {limit_kb} KB).",
+    "batch_outreach_too_many_items": "❌ Too many entries in JSON (limit: {limit}).",
+    "batch_outreach_invalid": (
+        "❌ Invalid JSON file. Expected an array of objects:\n\n"
+        "[\n"
+        "  {\n"
+        "    \"username\": \"t.me/username\",\n"
+        "    \"style\": \"friend\",\n"
+        "    \"prompt\": \"Custom prompt for this chat\",\n"
+        "    \"instruction\": \"Initial message text\"\n"
+        "  }\n"
+        "]\n\n"
+        "Allowed style values: userlike, friend, romance, business, sales, paranoid, seducer."
+    ),
 }
 
 

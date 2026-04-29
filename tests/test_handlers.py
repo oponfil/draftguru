@@ -8,6 +8,7 @@ from telegram.ext import ApplicationHandlerStop
 
 from handlers.pyrogram_handlers import (
     _auto_reply_tasks,
+    _auto_reply_worker,
     _bot_drafts,
     _bot_draft_echoes,
     _maybe_schedule_auto_reply,
@@ -1983,3 +1984,47 @@ class TestAutonomousAutoReply:
 
         call_kwargs = mock_gen.call_args.kwargs
         assert call_kwargs["is_autonomous"] is True
+
+
+class TestAutoReplyWorkerArchive:
+    """Тесты архив-skip в _auto_reply_worker."""
+
+    @pytest.mark.asyncio
+    async def test_skips_send_when_chat_archived(self):
+        """Если чат в архиве — auto-reply НЕ отправляет сообщение и чистит state."""
+        user_id, chat_id = 555, 777
+        key = (user_id, chat_id)
+        _bot_drafts[key] = "draft to send"
+        _bot_draft_echoes[key] = "draft to send"
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock):
+            mock_pc.is_chat_archived = AsyncMock(return_value=True)
+            mock_pc.send_message = AsyncMock(return_value=True)
+            mock_pc.set_draft = AsyncMock(return_value=True)
+
+            await _auto_reply_worker(user_id, chat_id, "draft to send", base_seconds=1, jitter=False)
+
+        mock_pc.send_message.assert_not_called()
+        mock_pc.set_draft.assert_called_once_with(user_id, chat_id, "")
+        assert key not in _bot_drafts
+        assert key not in _bot_draft_echoes
+
+    @pytest.mark.asyncio
+    async def test_sends_when_chat_not_archived(self):
+        """Если чат не в архиве — auto-reply отправляет сообщение."""
+        user_id, chat_id = 555, 777
+        key = (user_id, chat_id)
+        _bot_drafts[key] = "draft to send"
+
+        with patch("handlers.pyrogram_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.pyrogram_handlers.asyncio.sleep", new_callable=AsyncMock), \
+             patch("handlers.pyrogram_handlers.dash_stats"):
+            mock_pc.is_chat_archived = AsyncMock(return_value=False)
+            mock_pc.send_message = AsyncMock(return_value=True)
+            mock_pc.set_draft = AsyncMock(return_value=True)
+
+            await _auto_reply_worker(user_id, chat_id, "draft to send", base_seconds=1, jitter=False)
+
+        mock_pc.send_message.assert_called_once_with(user_id, chat_id, "draft to send")
+        assert key not in _bot_drafts

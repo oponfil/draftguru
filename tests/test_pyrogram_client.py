@@ -871,3 +871,58 @@ class TestGetChatBio:
         assert result is None
 
         pyrogram_client._active_clients.pop(123, None)
+
+
+class TestIsChatArchived:
+    """Тесты для is_chat_archived()."""
+
+    def teardown_method(self):
+        pyrogram_client._active_clients.pop(123, None)
+
+    def _setup_client_with_dialog(self, folder_id: int):
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+        dialog = MagicMock()
+        dialog.folder_id = folder_id
+        result = MagicMock()
+        result.dialogs = [dialog]
+        mock_client.invoke = AsyncMock(return_value=result)
+        pyrogram_client._active_clients[123] = mock_client
+        return mock_client
+
+    @pytest.mark.asyncio
+    async def test_returns_true_for_archive_folder(self):
+        """folder_id == 1 → архив."""
+        self._setup_client_with_dialog(folder_id=1)
+        assert await pyrogram_client.is_chat_archived(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_for_main_folder(self):
+        """folder_id == 0 → основная папка."""
+        self._setup_client_with_dialog(folder_id=0)
+        assert await pyrogram_client.is_chat_archived(123, 456) is False
+
+    @pytest.mark.asyncio
+    async def test_fail_close_when_no_client(self):
+        """Без клиента → True (fail-close, не отправляем сообщение)."""
+        pyrogram_client._active_clients.pop(123, None)
+        assert await pyrogram_client.is_chat_archived(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_fail_close_on_exception(self):
+        """Ошибка API → True (fail-close)."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(side_effect=Exception("flood wait"))
+        pyrogram_client._active_clients[123] = mock_client
+        assert await pyrogram_client.is_chat_archived(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_dialog_missing(self):
+        """Пустой список dialogs → не архив."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+        result = MagicMock()
+        result.dialogs = []
+        mock_client.invoke = AsyncMock(return_value=result)
+        pyrogram_client._active_clients[123] = mock_client
+        assert await pyrogram_client.is_chat_archived(123, 456) is False

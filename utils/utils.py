@@ -192,6 +192,63 @@ def calculate_fallback_delay() -> int:
     return AUTONOMOUS_FALLBACK_DELAY
 
 
+def format_participants(
+    user_info: dict | None = None,
+    opponent_info: dict | None = None,
+    chat_history: list[dict] | None = None,
+) -> str:
+    """Собирает блок 'PARTICIPANTS:' с профилями и bio участников.
+
+    Используется как для чатов с историей (`format_chat_history`), так и для cold
+    outreach без истории, чтобы bio собеседника единообразно попадало в контекст
+    модели в одном и том же формате.
+
+    Args:
+        user_info: Информация о владельце сессии (опционально)
+        opponent_info: Информация об оппоненте (опционально)
+        chat_history: История сообщений для дополнения списка собеседников
+            (если есть несколько участников в группе)
+
+    Returns:
+        Строку вида:
+            PARTICIPANTS:
+            You: Name
+            You bio: ...
+            Them: Name1, Name2
+            Them bio: ...
+    """
+    user_profile = format_profile(user_info, "You")
+    lines = [f"You: {user_profile}"]
+
+    if user_info and user_info.get("bio"):
+        lines.append(f"You bio: {user_info['bio']}")
+
+    them_names: list[str] = []
+    seen_names: set[str] = set()
+    if opponent_info:
+        opp_profile = format_profile(opponent_info, "Them")
+        seen_names.add(opponent_info.get("first_name", ""))
+        them_names.append(opp_profile)
+
+    for msg in (chat_history or []):
+        if msg["role"] != "user" and msg.get("name") and msg["name"] not in seen_names:
+            seen_names.add(msg["name"])
+            full_name = msg["name"]
+            if msg.get("last_name"):
+                full_name += f" {msg['last_name']}"
+            them_names.append(full_name)
+
+    if them_names:
+        lines.append("Them: " + ", ".join(them_names))
+    else:
+        lines.append("Them: Them")
+
+    if opponent_info and opponent_info.get("bio"):
+        lines.append(f"Them bio: {opponent_info['bio']}")
+
+    return "PARTICIPANTS:\n" + "\n".join(lines)
+
+
 def format_chat_history(
     chat_history: list[dict],
     user_info: dict | None = None,
@@ -208,49 +265,22 @@ def format_chat_history(
 
     Возвращает строку вида:
         PARTICIPANTS:
-        You: Name, @username
-        Them: Name, @username
+        You: Name
+        You bio: ... (если задано)
+        Them: Name
+        Them bio: ... (если задано)
 
         CHAT HISTORY:
         [2026-03-14 14:30] Name: text
+
+    Если `chat_history` пуст, возвращается только блок PARTICIPANTS — это
+    используется в Cold Outreach, где истории ещё нет.
     """
     you = format_profile(user_info, "You")
     them = format_profile(opponent_info, "Them")
 
-    # Заголовок с профилями участников
-    user_profile = format_profile(user_info, "You")
-    lines = [f"You: {user_profile}"]
+    parts = [format_participants(user_info, opponent_info, chat_history)]
 
-    if user_info and user_info.get("bio"):
-        lines.append(f"You bio: {user_info['bio']}")
-
-    # Собираем всех собеседников (Them)
-    them_names = []
-    seen_names = set()
-    if opponent_info:
-        opp_profile = format_profile(opponent_info, "Them")
-        seen_names.add(opponent_info.get("first_name", ""))
-        them_names.append(opp_profile)
-
-    for msg in chat_history:
-        if msg["role"] != "user" and msg.get("name") and msg["name"] not in seen_names:
-            seen_names.add(msg["name"])
-            full_name = msg["name"]
-            if msg.get("last_name"):
-                full_name += f" {msg['last_name']}"
-            them_names.append(full_name)
-
-    if them_names:
-        lines.append("Them: " + ", ".join(them_names))
-    else:
-        lines.append("Them: Them")
-
-    if opponent_info and opponent_info.get("bio"):
-        lines.append(f"Them bio: {opponent_info['bio']}")
-
-    parts = ["PARTICIPANTS:\n" + "\n".join(lines)]
-
-    # Сдвиг для часового пояса
     tz_delta = timedelta(hours=tz_offset) if tz_offset else timedelta()
 
     # Форматируем историю в текст для AI

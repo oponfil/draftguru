@@ -16,10 +16,10 @@ Auto-replies and follow-ups work in private chats only. Draft instructions work 
 ## Security
 
 - By default, the bot **only writes drafts** and never sends messages on your behalf. Auto-sending is only possible when the auto-reply timer is explicitly enabled in `/settings`.
-- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is dynamically limited: up to 30 messages (5,000 characters) for standard drafts, and up to 150 messages (15,000 characters) for auto-replies to provide deeper conversational context. Older messages are dropped.
+- **Messages are not stored.** The bot doesn't save conversations — chat history is fetched via Telegram API on each event and is never persisted. The context is dynamically limited: up to 50 messages (5,000 characters) for standard drafts, and up to 150 messages (15,000 characters) for auto-replies and autonomous mode to provide deeper conversational context. Older messages are dropped.
 - **Saved Messages** (self-chat) and **Telegram service notifications** are fully ignored — the bot doesn't read, draft, or process messages in them. Additional chats can be excluded via `IGNORED_CHAT_IDS` in `config.py`.
 - Telegram sessions are encrypted with `Fernet` (`SESSION_ENCRYPTION_KEY`) before being stored in the database.
-- **AI Post-Moderation:** Auto-replies and follow-ups are protected by an ultra-fast secondary LLM check (e.g., Qwen 3.5 Flash) that intercepts "safety refusal" or moralizing responses from strictly aligned models. If an auto-generated response is flagged as a refusal, it is preserved in the draft input field but is **never sent automatically**.
+- **AI Post-Moderation:** Auto-replies and follow-ups are protected by an ultra-fast secondary LLM check (e.g., Qwen 3.5 Flash) that intercepts "safety refusal" or moralizing responses from strictly aligned models. On detection, the bot automatically retries the request with an unfiltered fallback model; if the retry is still flagged as a refusal, the response is preserved in the draft input field but is **never sent automatically**.
 
 ## Quick Start
 
@@ -89,10 +89,10 @@ By default, `/connect` prompts for a phone number. A button below the message le
 
 | Setting | Description | Default |
 |---------|-------------|:-------:|
-| **Model** (🤖) | AI mode: FREE (Gemini 3.1 Flash Lite) or PRO. In PRO mode, the model is selected by communication style: GPT-5.4 for most styles, Gemini 3.1 Pro Preview for seducer. | PRO |
+| **Model** (🤖) | AI mode: FREE (DeepSeek V4 Flash) or PRO (DeepSeek V4 Pro across all styles). | PRO |
 | **Prompt** (📝) | Custom prompt: describe your persona and add instructions (max 600 chars). The AI uses this to build a *USER PROFILE & CUSTOM INSTRUCTIONS* block. **We recommend adding a self-description** — gender, age, occupation, and texting habits — so the AI mimics your style more accurately. Example: "I'm a 28 y/o guy, designer. I text short, 1–2 sentences, never use periods at the end. I swear a lot and use stickers." Applied to all chats. Applied to drafts and auto-replies. | ❌ OFF |
 | **Style** (🦉/🍻/💕/💼/💰/🕵️/😈) | Communication style: Userlike, Friend, Romance, Business, Sales, Paranoid, Seducer. Sets the tone and manner of replies (including direct bot chat). | 🦉 Userlike |
-| **Auto-reply** (⏰) | Auto-reply timer. If the user doesn't send the draft within the specified time, the bot sends the message itself. Options: OFF, 🔇 Ignore, 🤖 AI Decides, 1 min, 15 min, 16 hours. **Ignore** disables drafts, auto-replies, and follow-ups by default for all chats, but any per-chat override in `/chats` still takes priority. **AI Decides** lets the model calculate realistic typing/sleep time dynamically or fallback to manual review. Actual delay for fixed timers: from base to 2×base (e.g. 16 h → 16–32 h, avg 24 h). | OFF |
+| **Auto-reply** (⏰) | Auto-reply timer. If the user doesn't send the draft within the specified time, the bot sends the message itself. Options: OFF, 🔇 Ignore, 🤖 AI Decides, 1 min, 15 min, 16 hours. **Ignore** disables drafts, auto-replies, and follow-ups by default for all chats, but any per-chat override in `/chats` still takes priority. **AI Decides** lets the model calculate realistic typing/sleep time dynamically; if the model omits the delay tag, a default fallback delay is used; if the model explicitly opts out, the reply stays as a draft for manual review. Actual delay for fixed timers: from base to 2×base (e.g. 16 h → 16–32 h, avg 24 h). | OFF |
 | **Timezone** (🕐) | User timezone. The button shows the current time — tap to cycle through 30 popular UTC offsets (including +3:30, +4:30, +5:30, +9:30). Affects message timestamps in AI context. | UTC0 |
 
 ### Per-chat Settings (`/chats`)
@@ -128,6 +128,25 @@ You can combine: `😈 tell her I miss her` — switches the style to Seducer an
 You can send any Telegram username (e.g. `@johndoe` or `t.me/johndoe`) directly to the bot. The bot will securely resolve the username and generate a compelling "first message" draft right in the target user's chat.
 - **Instruct:** Add a plain text instruction to guide the AI, e.g. `@johndoe invite him to a tech meetup`.
 - **Language:** If you provide no instruction (`@johndoe`), the draft is natively composed in your Telegram UI's default language. The bot will use an intriguing hook or open-ended question instead of a generic "hello".
+
+**Batch Cold Outreach via JSON:**
+You can upload a `.json` file to the bot to process multiple users at once. The bot will sequentially resolve each username, set the specified style and custom prompt for their chat, and generate the initial drafts.
+
+Expected JSON format:
+```json
+[
+  {
+    "username": "username",
+    "style": "friend",
+    "prompt": "Custom prompt for this chat",
+    "instruction": "Initial message prompt"
+  }
+]
+```
+- `username` is required. Accepted formats: `johndoe`, `@johndoe`, `t.me/johndoe`, `https://t.me/johndoe`.
+- `style` is optional. Allowed values: `userlike`, `friend`, `romance`, `business`, `sales`, `paranoid`, `seducer`.
+- `prompt` and `instruction` are optional strings (max prompt length is `CHAT_PROMPT_MAX_LENGTH`).
+- File size limit: 1 MB. Max 100 entries per file.
 
 ### Media: Voice, Video, Photos, and Stickers
 

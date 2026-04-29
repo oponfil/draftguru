@@ -7,7 +7,13 @@ import pytest
 
 import bot as bot_module
 import utils.utils as utils_module
-from handlers.bot_handlers import on_start, on_start_connect_callback, on_text
+from handlers.bot_handlers import (
+    _process_batch_item,
+    on_json_document,
+    on_start,
+    on_start_connect_callback,
+    on_text,
+)
 from bot import on_error
 
 
@@ -393,11 +399,241 @@ class TestMain:
             bot_module.main()
 
         assert len(command_handlers) == 7
-        assert len(message_handlers) == 2
+        assert len(message_handlers) == 3
         assert all(kwargs["filters"] is bot_module.PRIVATE_ONLY_FILTER for _, kwargs in command_handlers)
-        assert "ChatType.PRIVATE" in repr(message_handlers[0][0][0])
-        assert "ChatType.PRIVATE" in repr(message_handlers[1][0][0])
+        assert all("ChatType.PRIVATE" in repr(handler[0][0]) for handler in message_handlers)
+        # Третий handler — JSON-документы для batch outreach
+        assert "Document.FileExtension('json')" in repr(message_handlers[2][0][0])
         mock_pc.set_message_callback.assert_called_once()
         mock_pc.set_draft_callback.assert_called_once()
         fake_builder.concurrent_updates.assert_called_once_with(True)
         fake_app.run_polling.assert_called_once_with(drop_pending_updates=True)
+
+
+# ====== Batch Cold Outreach (on_json_document) ======
+
+
+def _make_json_document_update(mock_update, file_name="batch.json", file_size=512, file_id="doc-1"):
+    """Прикрепляет к моку Update документ с заданными атрибутами."""
+    document = MagicMock()
+    document.file_id = file_id
+    document.file_name = file_name
+    document.file_size = file_size
+    mock_update.message.document = document
+    mock_update.message.text = None
+    return document
+
+
+def _patch_json_document_handler(payload_bytes: bytes, *, is_active: bool = True):
+    """Патчит зависимости on_json_document. Возвращает контекст-менеджер с моками."""
+    file_mock = AsyncMock()
+    file_mock.download_as_bytearray = AsyncMock(return_value=bytearray(payload_bytes))
+
+    pc_mock = MagicMock()
+    pc_mock.is_active = MagicMock(return_value=is_active)
+    pc_mock.resolve_target_chat = AsyncMock(
+        return_value={
+            "chat_id": 999,
+            "first_name": "Jane",
+            "last_name": None,
+            "username": "jane",
+            "bio": None,
+        }
+    )
+
+    return {
+        "file_mock": file_mock,
+        "pc_mock": pc_mock,
+        "patches": [
+            patch("handlers.bot_handlers.ensure_effective_user", new_callable=AsyncMock,
+                  return_value={"settings": {"style": "userlike", "tz_offset": 0}}),
+            patch("handlers.bot_handlers.update_last_msg_at", new_callable=AsyncMock),
+            patch("handlers.bot_handlers.pyrogram_client", pc_mock),
+            patch("handlers.bot_handlers.get_system_message", new_callable=AsyncMock,
+                  side_effect=lambda lang, key, **_: f"<{key}>"),
+        ],
+    }
+
+
+class TestOnJsonDocument:
+    """Тесты для on_json_document()."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_not_connected(self, mock_update, mock_context):
+        _make_json_document_update(mock_update)
+        bundle = _patch_json_document_handler(b"[]", is_active=False)
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3]:
+            await on_json_document(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        # resolve_target_chat не должен вызываться, если пользователь не подключён
+        bundle["pc_mock"].resolve_target_chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rejects_oversize_file(self, mock_update, mock_context):
+        _make_json_document_update(mock_update, file_size=10 * 1024 * 1024)
+        bundle = _patch_json_document_handler(b"[]")
+        mock_context.bot.get_file = AsyncMock(return_value=bundle["file_mock"])
+
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3]:
+            await on_json_document(mock_update, mock_context)
+
+        mock_update.message.reply_text.assert_called_once()
+        args, _ = mock_update.message.reply_text.call_args
+        assert "batch_outreach_too_large" in args[0]
+        bundle["pc_mock"].resolve_target_chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_json(self, mock_update, mock_context):
+        _make_json_document_update(mock_update)
+        bundle = _patch_json_document_handler(b"{not json")
+        mock_context.bot.get_file = AsyncMock(return_value=bundle["file_mock"])
+
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3]:
+            await on_json_document(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        assert "batch_outreach_invalid" in args[0]
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_list_payload(self, mock_update, mock_context):
+        _make_json_document_update(mock_update)
+        bundle = _patch_json_document_handler(b'{"username": "@x"}')
+        mock_context.bot.get_file = AsyncMock(return_value=bundle["file_mock"])
+
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3]:
+            await on_json_document(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        assert "batch_outreach_invalid" in args[0]
+
+    @pytest.mark.asyncio
+    async def test_rejects_too_many_items(self, mock_update, mock_context):
+        from handlers.bot_handlers import BATCH_OUTREACH_MAX_ITEMS
+        items = [{"username": f"@user{i:05d}"} for i in range(BATCH_OUTREACH_MAX_ITEMS + 1)]
+        _make_json_document_update(mock_update)
+        bundle = _patch_json_document_handler(__import__("json").dumps(items).encode())
+        mock_context.bot.get_file = AsyncMock(return_value=bundle["file_mock"])
+
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3]:
+            await on_json_document(mock_update, mock_context)
+
+        args, _ = mock_update.message.reply_text.call_args
+        assert "batch_outreach_too_many_items" in args[0]
+        bundle["pc_mock"].resolve_target_chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_processes_valid_batch(self, mock_update, mock_context):
+        items = [
+            {"username": "@johndoe", "style": "friend", "instruction": "say hi"},
+            {"username": "t.me/janedoe", "prompt": "  short prompt  "},
+        ]
+        _make_json_document_update(mock_update)
+        bundle = _patch_json_document_handler(__import__("json").dumps(items).encode())
+        mock_context.bot.get_file = AsyncMock(return_value=bundle["file_mock"])
+        status_msg = AsyncMock()
+        mock_update.message.reply_text = AsyncMock(return_value=status_msg)
+
+        with bundle["patches"][0], bundle["patches"][1], bundle["patches"][2], bundle["patches"][3], \
+             patch("handlers.bot_handlers._process_batch_item", new_callable=AsyncMock, return_value=True) as mock_proc:
+            await on_json_document(mock_update, mock_context)
+
+        assert mock_proc.await_count == 2
+        status_msg.edit_text.assert_called_once()
+        edit_text_args, _ = status_msg.edit_text.call_args
+        assert "batch_outreach_success" in edit_text_args[0]
+
+
+class TestProcessBatchItem:
+    """Тесты для _process_batch_item() — валидация полей одной записи."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_username(self, mock_user):
+        item = {"username": "no-at-sign"}  # дефис недопустим в TG username
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc:
+            mock_pc.resolve_target_chat = AsyncMock()
+            ok = await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+        assert ok is False
+        mock_pc.resolve_target_chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw_username", [
+        "johndoe",
+        "@johndoe",
+        "t.me/johndoe",
+        "https://t.me/johndoe",
+    ])
+    async def test_accepts_username_variants(self, mock_user, raw_username):
+        item = {"username": raw_username}
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.bot_handlers.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers._execute_cold_outreach", new_callable=AsyncMock, return_value=True):
+            mock_pc.resolve_target_chat = AsyncMock(return_value={"chat_id": 1, "first_name": "x"})
+            ok = await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+        assert ok is True
+        mock_pc.resolve_target_chat.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_target_not_found(self, mock_user):
+        item = {"username": "@johndoe"}
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc:
+            mock_pc.resolve_target_chat = AsyncMock(return_value=None)
+            ok = await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_invalid_style_falls_back_to_global(self, mock_user):
+        item = {"username": "@johndoe", "style": "friendly"}  # 'friendly' не валиден
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.bot_handlers.update_chat_style", new_callable=AsyncMock) as mock_set_style, \
+             patch("handlers.bot_handlers.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers._execute_cold_outreach", new_callable=AsyncMock, return_value=True) as mock_exec:
+            mock_pc.resolve_target_chat = AsyncMock(return_value={"chat_id": 1, "first_name": "x"})
+            ok = await _process_batch_item(mock_user, None, {}, 0, "business", item)
+
+        assert ok is True
+        # Невалидный стиль НЕ должен сохраниться в БД
+        mock_set_style.assert_not_called()
+        # _execute_cold_outreach получает global_style = "business"
+        called_args = mock_exec.call_args.args
+        assert called_args[6] == "business"
+
+    @pytest.mark.asyncio
+    async def test_empty_prompt_clears_per_chat_prompt(self, mock_user):
+        item = {"username": "@johndoe", "prompt": "   "}
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.bot_handlers.update_chat_prompt", new_callable=AsyncMock) as mock_set_prompt, \
+             patch("handlers.bot_handlers.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers._execute_cold_outreach", new_callable=AsyncMock, return_value=True):
+            mock_pc.resolve_target_chat = AsyncMock(return_value={"chat_id": 1, "first_name": "x"})
+            await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+
+        # Пустой промпт должен сброситься в None
+        mock_set_prompt.assert_awaited_once()
+        assert mock_set_prompt.call_args.args[2] is None
+
+    @pytest.mark.asyncio
+    async def test_non_string_instruction_is_coerced(self, mock_user):
+        item = {"username": "@johndoe", "instruction": 42}
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.bot_handlers.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers._execute_cold_outreach", new_callable=AsyncMock, return_value=True) as mock_exec:
+            mock_pc.resolve_target_chat = AsyncMock(return_value={"chat_id": 1, "first_name": "x"})
+            ok = await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+
+        assert ok is True
+        # instruction приводится к "42"
+        called_args = mock_exec.call_args.args
+        assert called_args[4] == "42"
+
+    @pytest.mark.asyncio
+    async def test_invalid_instruction_type_falls_back_to_empty(self, mock_user):
+        item = {"username": "@johndoe", "instruction": {"nested": "object"}}
+        with patch("handlers.bot_handlers.pyrogram_client") as mock_pc, \
+             patch("handlers.bot_handlers.get_user", new_callable=AsyncMock, return_value={"settings": {}}), \
+             patch("handlers.bot_handlers._execute_cold_outreach", new_callable=AsyncMock, return_value=True) as mock_exec:
+            mock_pc.resolve_target_chat = AsyncMock(return_value={"chat_id": 1, "first_name": "x"})
+            await _process_batch_item(mock_user, None, {}, 0, "userlike", item)
+
+        called_args = mock_exec.call_args.args
+        assert called_args[4] == ""

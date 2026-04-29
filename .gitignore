@@ -44,3 +44,6 @@ migrations/
 
 # TODO (личный роадмап)
 TODO/
+
+# Batch cold outreach JSON (тестовые данные, в репо не коммитим)
+/[0-9]*.json

@@ -1,26 +1,137 @@
 # handlers/bot_handlers.py — Обработчики команд Telegram Bot API (/start, on_text)
 
 import asyncio
+import json
 import re
 import traceback
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update, User
 from telegram.ext import ContextTypes
 
-from config import CHAT_PROMPT_MAX_LENGTH, USER_PROMPT_MAX_LENGTH, DEBUG_PRINT, FREE_LLM_MODEL, MODEL_REASONING_EFFORT, MAX_CONTEXT_MESSAGES, DEFAULT_LANGUAGE_CODE, CHAT_AUTONOMOUS_SENTINEL
-from utils.utils import get_effective_model, get_timestamp, serialize_user_updates, typing_action, get_local_time_string, get_effective_auto_reply, extract_autonomous_delay, calculate_fallback_delay
+from config import (
+    CHAT_AUTONOMOUS_SENTINEL,
+    CHAT_PROMPT_MAX_LENGTH,
+    DEBUG_PRINT,
+    DEFAULT_LANGUAGE_CODE,
+    EMOJI_TO_STYLE,
+    FREE_LLM_MODEL,
+    MAX_CONTEXT_MESSAGES,
+    MODEL_REASONING_EFFORT,
+    USER_PROMPT_MAX_LENGTH,
+)
+from utils.utils import (
+    calculate_fallback_delay,
+    extract_autonomous_delay,
+    format_chat_history,
+    get_effective_auto_reply,
+    get_effective_model,
+    get_effective_prompt,
+    get_local_time_string,
+    get_timestamp,
+    serialize_user_updates,
+    typing_action,
+)
 from utils.bot_utils import update_user_menu
 from utils.telegram_user import ensure_effective_user, upsert_effective_user
 from clients.x402gate.openrouter import generate_response
-from prompts import build_bot_chat_prompt, build_draft_prompt
+from prompts import build_bot_chat_prompt, build_draft_prompt, format_user_instruction
 from logic.rag import retrieve_context
-from database.users import update_chat_prompt, update_last_msg_at, update_tg_rating, update_user_settings
+from database.users import (
+    get_user,
+    update_chat_prompt,
+    update_chat_style,
+    update_last_msg_at,
+    update_tg_rating,
+    update_user_settings,
+)
 from utils.telegram_rating import extract_rating_from_chat
 from system_messages import get_system_message, SYSTEM_MESSAGES
 from clients import pyrogram_client
 from dashboard import stats as dash_stats
 from handlers.connect_handler import on_connect
 from handlers.pyrogram_handlers import register_bot_draft_and_schedule
+
+
+VALID_STYLES: frozenset[str] = frozenset(EMOJI_TO_STYLE.values())
+# Допускаем username c префиксом ('@', 't.me/', 'https://t.me/') и без — голый ник тоже валиден.
+USERNAME_RE = re.compile(
+    r"^(?:@|https?://t\.me/|t\.me/)?[a-zA-Z0-9_]{5,32}$",
+    flags=re.IGNORECASE,
+)
+
+# Локальные лимиты batch cold outreach: используются только в on_json_document.
+BATCH_OUTREACH_MAX_FILE_SIZE = 1 * 1024 * 1024  # Макс. размер JSON-файла (1 МБ)
+BATCH_OUTREACH_MAX_ITEMS = 100  # Макс. число записей в одном батче
+
+
+def _opponent_info_from_target_chat(target_chat: dict) -> dict:
+    """Достаёт минимальный профиль собеседника из ответа resolve_target_chat."""
+    return {
+        "first_name": target_chat.get("first_name"),
+        "last_name": target_chat.get("last_name"),
+        "username": target_chat.get("username"),
+        "bio": target_chat.get("bio"),
+    }
+
+
+async def _execute_cold_outreach(
+    u: User,
+    user: dict | None,
+    chat_id: int,
+    target_chat: dict,
+    instruction: str,
+    user_settings: dict,
+    style: str,
+    custom_prompt: str,
+    tz_offset: float,
+) -> bool:
+    """Генерирует и устанавливает черновик для первого сообщения (Cold Outreach)."""
+    auto_reply = get_effective_auto_reply(user_settings, chat_id)
+    is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
+
+    gen_kwargs = {
+        "system_prompt": build_draft_prompt(
+            has_history=False,
+            custom_prompt=custom_prompt,
+            style=style,
+            local_time_str=get_local_time_string(tz_offset),
+            language_code=u.language_code or DEFAULT_LANGUAGE_CODE,
+            is_autonomous=is_auto,
+        ),
+    }
+    model = get_effective_model(user_settings, style)
+    if model:
+        gen_kwargs["model"] = model
+
+    fallback_text = await get_system_message(u.language_code, "cold_outreach_default_instruction")
+    instruction_text = instruction.strip() or fallback_text
+    opponent_info = _opponent_info_from_target_chat(target_chat)
+    user_msg_text = format_chat_history([], user, opponent_info, tz_offset=tz_offset)
+    user_msg_text += format_user_instruction(instruction_text)
+
+    draft_text = await generate_response(user_msg_text, **gen_kwargs)
+
+    if not draft_text or not draft_text.strip():
+        return False
+
+    draft_text = draft_text.strip()
+    dynamic_delay: int | None = None
+    skip_auto_reply = False
+
+    if is_auto:
+        draft_text, extracted_delay, is_manual = extract_autonomous_delay(draft_text)
+        if is_manual:
+            skip_auto_reply = True
+        elif extracted_delay is None:
+            dynamic_delay = calculate_fallback_delay()
+        else:
+            dynamic_delay = extracted_delay
+
+    await register_bot_draft_and_schedule(
+        u.id, chat_id, draft_text, user_settings, style,
+        skip_auto_reply=skip_auto_reply, dynamic_delay=dynamic_delay,
+    )
+    return True
 
 
 @serialize_user_updates
@@ -175,11 +286,15 @@ async def _process_text(
         asyncio.create_task(update_last_msg_at(u.id))
 
         # === Cold Outreach Generation via Username ===
-        username_match = re.match(r"^(@[a-zA-Z0-9_]{5,32}|https?://t\.me/[a-zA-Z0-9_]{5,32}|t\.me/[a-zA-Z0-9_]{5,32})(?:\s+(.*))?$", message_text.strip(), flags=re.IGNORECASE)
+        username_match = re.match(
+            r"^(@[a-zA-Z0-9_]{5,32}|https?://t\.me/[a-zA-Z0-9_]{5,32}|t\.me/[a-zA-Z0-9_]{5,32})(?:\s+(.*))?$",
+            message_text.strip(),
+            flags=re.IGNORECASE,
+        )
         if username_match:
             raw_username = username_match.group(1)
             instruction = username_match.group(2) or ""
-            
+
             if not pyrogram_client.is_active(u.id):
                 error_msg = await get_system_message(u.language_code, "cold_outreach_not_connected")
                 await m.reply_text(error_msg)
@@ -187,62 +302,25 @@ async def _process_text(
 
             gen_msg_text = (await get_system_message(u.language_code, "cold_outreach_generating")).format(username=raw_username)
             status_msg = await m.reply_text(gen_msg_text)
-            
+
             target_chat = await pyrogram_client.resolve_target_chat(u.id, raw_username)
             if not target_chat:
                 error_msg = (await get_system_message(u.language_code, "cold_outreach_not_found")).format(username=raw_username)
                 await status_msg.edit_text(error_msg)
                 return
-                
+
             chat_id = target_chat["chat_id"]
-            
             user_settings = (user or {}).get("settings") or {}
             style = user_settings.get("style", "userlike")
             tz_offset = user_settings.get("tz_offset", 0) or 0
-            
-            auto_reply = get_effective_auto_reply(user_settings, chat_id)
-            is_auto = (auto_reply == CHAT_AUTONOMOUS_SENTINEL)
-            
-            gen_kwargs = {
-                "system_prompt": build_draft_prompt(
-                    has_history=False,
-                    custom_prompt=user_settings.get("custom_prompt", ""),
-                    style=style,
-                    local_time_str=get_local_time_string(tz_offset),
-                    language_code=u.language_code or DEFAULT_LANGUAGE_CODE,
-                    is_autonomous=is_auto,
-                ),
-            }
-            model = get_effective_model(user_settings, style)
-            if model:
-                gen_kwargs["model"] = model
-            
-            if instruction.strip():
-                user_msg_text = f"INSTRUCTION: {instruction}"
-            else:
-                user_msg_text = await get_system_message(u.language_code, "cold_outreach_default_instruction")
+            effective_custom_prompt = get_effective_prompt(user_settings, chat_id)
 
-            draft_text = await generate_response(user_msg_text, **gen_kwargs)
-            
-            if draft_text and draft_text.strip():
-                draft_text = draft_text.strip()
-                dynamic_delay = None
-                skip_auto_reply = False
-                
-                if is_auto:
-                    draft_text, extracted_delay, is_manual = extract_autonomous_delay(draft_text)
-                    if is_manual:
-                        skip_auto_reply = True
-                    elif extracted_delay is None:
-                        dynamic_delay = calculate_fallback_delay()
-                    else:
-                        dynamic_delay = extracted_delay
-                
-                await register_bot_draft_and_schedule(
-                    u.id, chat_id, draft_text, user_settings, style,
-                    skip_auto_reply=skip_auto_reply, dynamic_delay=dynamic_delay
-                )
-                
+            success = await _execute_cold_outreach(
+                u, user, chat_id, target_chat, instruction,
+                user_settings, style, effective_custom_prompt, tz_offset,
+            )
+
+            if success:
                 success_msg = (await get_system_message(u.language_code, "cold_outreach_success")).format(username=raw_username)
                 await status_msg.edit_text(success_msg)
             else:
@@ -304,6 +382,152 @@ async def _process_text(
 
     except Exception as e:
         print(f"{get_timestamp()} [BOT] ERROR generating response for user {u.id}: {e}")
+        traceback.print_exc()
+        error_msg = await get_system_message(u.language_code, "error")
+        await m.reply_text(error_msg or SYSTEM_MESSAGES["error"])
+
+
+def _coerce_optional_str(value: object) -> str | None:
+    """Превращает значение в строку, если это str/число; иначе None."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+async def _process_batch_item(
+    u: User,
+    user: dict | None,
+    user_settings: dict,
+    global_tz_offset: float,
+    global_style: str,
+    item: dict,
+) -> bool:
+    """Обрабатывает одну запись из batch-JSON.
+
+    Returns:
+        True если черновик создан, иначе False.
+    """
+    raw_username = _coerce_optional_str(item.get("username"))
+    if not raw_username or not USERNAME_RE.match(raw_username.strip()):
+        return False
+
+    target_chat = await pyrogram_client.resolve_target_chat(u.id, raw_username.strip())
+    if not target_chat:
+        return False
+
+    chat_id = target_chat["chat_id"]
+
+    raw_style = _coerce_optional_str(item.get("style"))
+    if raw_style and raw_style in VALID_STYLES:
+        chat_style = raw_style
+        await update_chat_style(u.id, chat_id, chat_style)
+    else:
+        chat_style = global_style
+
+    raw_prompt = _coerce_optional_str(item.get("prompt"))
+    if raw_prompt is not None:
+        truncated = raw_prompt.strip()[:CHAT_PROMPT_MAX_LENGTH]
+        await update_chat_prompt(u.id, chat_id, truncated or None)
+
+    refreshed = await get_user(u.id)
+    refreshed_settings = (refreshed or {}).get("settings") or user_settings
+    effective_custom_prompt = get_effective_prompt(refreshed_settings, chat_id)
+
+    instruction = _coerce_optional_str(item.get("instruction")) or ""
+
+    return await _execute_cold_outreach(
+        u, user, chat_id, target_chat, instruction,
+        refreshed_settings, chat_style, effective_custom_prompt, global_tz_offset,
+    )
+
+
+@typing_action
+async def on_json_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик загрузки JSON-файла для массовой генерации черновиков."""
+    u = update.effective_user
+    m = update.message
+
+    try:
+        user = await ensure_effective_user(update)
+        asyncio.create_task(update_last_msg_at(u.id))
+
+        if not pyrogram_client.is_active(u.id):
+            error_msg = await get_system_message(u.language_code, "cold_outreach_not_connected")
+            await m.reply_text(error_msg)
+            return
+
+        doc = m.document
+        if not doc or not (doc.file_name or "").lower().endswith(".json"):
+            return
+
+        if doc.file_size and doc.file_size > BATCH_OUTREACH_MAX_FILE_SIZE:
+            too_large_msg = (await get_system_message(u.language_code, "batch_outreach_too_large")).format(
+                limit_kb=BATCH_OUTREACH_MAX_FILE_SIZE // 1024,
+            )
+            await m.reply_text(too_large_msg)
+            return
+
+        file = await context.bot.get_file(doc.file_id)
+        file_bytes = await file.download_as_bytearray()
+
+        try:
+            data = json.loads(bytes(file_bytes).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            invalid_msg = await get_system_message(u.language_code, "batch_outreach_invalid")
+            await m.reply_text(invalid_msg)
+            return
+
+        if not isinstance(data, list) or not data:
+            invalid_msg = await get_system_message(u.language_code, "batch_outreach_invalid")
+            await m.reply_text(invalid_msg)
+            return
+
+        if len(data) > BATCH_OUTREACH_MAX_ITEMS:
+            too_many_msg = (await get_system_message(u.language_code, "batch_outreach_too_many_items")).format(
+                limit=BATCH_OUTREACH_MAX_ITEMS,
+            )
+            await m.reply_text(too_many_msg)
+            return
+
+        started_msg = await get_system_message(u.language_code, "batch_outreach_started")
+        status_msg = await m.reply_text(started_msg)
+
+        success_count = 0
+        error_count = 0
+
+        user_settings = (user or {}).get("settings") or {}
+        global_tz_offset = user_settings.get("tz_offset", 0) or 0
+        global_style = user_settings.get("style", "userlike")
+
+        for index, item in enumerate(data):
+            if not isinstance(item, dict):
+                error_count += 1
+                continue
+
+            try:
+                created = await _process_batch_item(
+                    u, user, user_settings, global_tz_offset, global_style, item,
+                )
+            except Exception as item_err:
+                created = False
+                print(
+                    f"{get_timestamp()} [BOT] ERROR processing batch item #{index} "
+                    f"for user {u.id}: {item_err}"
+                )
+
+            if created:
+                success_count += 1
+            else:
+                error_count += 1
+
+        success_msg_template = await get_system_message(u.language_code, "batch_outreach_success")
+        success_msg = success_msg_template.format(success_count=success_count, error_count=error_count)
+        await status_msg.edit_text(success_msg)
+
+    except Exception as e:
+        print(f"{get_timestamp()} [BOT] ERROR processing JSON document for user {u.id}: {e}")
         traceback.print_exc()
         error_msg = await get_system_message(u.language_code, "error")
         await m.reply_text(error_msg or SYSTEM_MESSAGES["error"])

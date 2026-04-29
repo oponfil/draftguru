@@ -732,6 +732,33 @@ async def get_draft(user_id: int, chat_id: int) -> str | None:
         return None
 
 
+async def is_chat_archived(user_id: int, chat_id: int) -> bool:
+    """Проверяет, находится ли чат в архиве (folder_id == 1).
+
+    Семантика fail-close: при отсутствии активного клиента или ошибке Telegram
+    возвращаем True, чтобы вызывающий код (auto-reply / follow-up) НЕ отправил
+    сообщение в чат, который пользователь мог только что архивировать.
+    """
+    client = _active_clients.get(user_id)
+    if not client:
+        return True
+
+    try:
+        peer = await client.resolve_peer(chat_id)
+        result = await client.invoke(
+            raw.functions.messages.GetPeerDialogs(
+                peers=[raw.types.InputDialogPeer(peer=peer)]
+            )
+        )
+        dialog = next(iter(result.dialogs), None)
+        if dialog is None:
+            return False
+        return getattr(dialog, "folder_id", 0) == 1
+    except Exception as e:
+        print(f"{get_timestamp()} [PYROGRAM] ERROR checking archive status for chat {chat_id}: {e}")
+        return True
+
+
 async def send_message(user_id: int, chat_id: int, text: str) -> bool:
     """Отправляет сообщение от имени пользователя через Pyrogram.
 

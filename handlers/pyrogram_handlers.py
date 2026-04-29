@@ -712,6 +712,18 @@ async def _auto_reply_worker(user_id: int, chat_id: int, text: str, base_seconds
         if _bot_drafts.get(key) != text:
             return
 
+        # Не отправляем в архивные чаты
+        if await pyrogram_client.is_chat_archived(user_id, chat_id):
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [AUTO-REPLY] Skipped for user {user_id} in chat {chat_id} (archived)")
+            _bot_drafts.pop(key, None)
+            _bot_draft_echoes.pop(key, None)
+            try:
+                await pyrogram_client.set_draft(user_id, chat_id, "")
+            except Exception:
+                pass
+            return
+
         sent = await pyrogram_client.send_message(user_id, chat_id, text)
         if sent:
             _track_replied_chat(user_id, chat_id)
@@ -1046,6 +1058,10 @@ async def poll_follow_ups(user_id: int) -> int:
         # Получаем последнее сообщение в чате
         msg = await pyrogram_client.get_last_message(user_id, chat_id)
         if not msg:
+            continue
+
+        # Отменяем автонапоминание, если чат отправлен в архив
+        if await pyrogram_client.is_chat_archived(user_id, chat_id):
             continue
 
         # Если последнее сообщение от собеседника — follow-up не нужен
