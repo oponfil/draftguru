@@ -878,6 +878,7 @@ class TestIsChatArchived:
 
     def teardown_method(self):
         pyrogram_client._active_clients.pop(123, None)
+        pyrogram_client._dialog_cache.clear()
 
     def _setup_client_with_dialog(self, folder_id: int):
         mock_client = AsyncMock()
@@ -918,7 +919,7 @@ class TestIsChatArchived:
 
     @pytest.mark.asyncio
     async def test_returns_false_when_dialog_missing(self):
-        """Пустой список dialogs → не архив."""
+        """Пустой список dialogs → не архив (для проверки удаления есть is_chat_deleted)."""
         mock_client = AsyncMock()
         mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
         result = MagicMock()
@@ -926,3 +927,100 @@ class TestIsChatArchived:
         mock_client.invoke = AsyncMock(return_value=result)
         pyrogram_client._active_clients[123] = mock_client
         assert await pyrogram_client.is_chat_archived(123, 456) is False
+
+
+class TestIsChatDeleted:
+    """Тесты для is_chat_deleted()."""
+
+    def teardown_method(self):
+        pyrogram_client._active_clients.pop(123, None)
+        pyrogram_client._dialog_cache.clear()
+
+    def _setup_client_with_dialogs(self, dialogs: list):
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+        result = MagicMock()
+        result.dialogs = dialogs
+        mock_client.invoke = AsyncMock(return_value=result)
+        pyrogram_client._active_clients[123] = mock_client
+        return mock_client
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_dialog_present(self):
+        """Диалог найден → не удалён."""
+        dialog = MagicMock()
+        dialog.folder_id = 0
+        self._setup_client_with_dialogs([dialog])
+        assert await pyrogram_client.is_chat_deleted(123, 456) is False
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_dialog_missing(self):
+        """Пустой список dialogs → удалён."""
+        self._setup_client_with_dialogs([])
+        assert await pyrogram_client.is_chat_deleted(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_fail_close_when_no_client(self):
+        """Без клиента → True (fail-close, не пишем черновик)."""
+        pyrogram_client._active_clients.pop(123, None)
+        assert await pyrogram_client.is_chat_deleted(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_fail_close_on_exception(self):
+        """Любое исключение API → True (fail-close, не пишем черновик)."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(side_effect=Exception("PEER_ID_INVALID"))
+        pyrogram_client._active_clients[123] = mock_client
+        assert await pyrogram_client.is_chat_deleted(123, 456) is True
+
+    @pytest.mark.asyncio
+    async def test_fail_close_on_unknown_exception(self):
+        """Не-маркерное исключение тоже → True (раньше было False — теперь fail-close)."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(side_effect=Exception("network timeout"))
+        pyrogram_client._active_clients[123] = mock_client
+        assert await pyrogram_client.is_chat_deleted(123, 456) is True
+
+
+class TestDialogCache:
+    """Тесты для общего кэша _fetch_chat_dialog (используется обеими is_chat_* функциями)."""
+
+    def teardown_method(self):
+        pyrogram_client._active_clients.pop(123, None)
+        pyrogram_client._dialog_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_cache_avoids_duplicate_rpc_within_ttl(self):
+        """Повторный вызов в пределах TTL не делает второй RPC."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+        dialog = MagicMock()
+        dialog.folder_id = 0
+        result = MagicMock()
+        result.dialogs = [dialog]
+        mock_client.invoke = AsyncMock(return_value=result)
+        pyrogram_client._active_clients[123] = mock_client
+
+        await pyrogram_client.is_chat_archived(123, 456)
+        await pyrogram_client.is_chat_deleted(123, 456)
+        await pyrogram_client.is_chat_archived(123, 456)
+
+        assert mock_client.invoke.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_invalidate_dialog_cache_forces_refresh(self):
+        """invalidate_dialog_cache() сбрасывает запись и следующий вызов делает RPC."""
+        mock_client = AsyncMock()
+        mock_client.resolve_peer = AsyncMock(return_value=MagicMock())
+        dialog = MagicMock()
+        dialog.folder_id = 0
+        result = MagicMock()
+        result.dialogs = [dialog]
+        mock_client.invoke = AsyncMock(return_value=result)
+        pyrogram_client._active_clients[123] = mock_client
+
+        await pyrogram_client.is_chat_archived(123, 456)
+        pyrogram_client.invalidate_dialog_cache(123, 456)
+        await pyrogram_client.is_chat_archived(123, 456)
+
+        assert mock_client.invoke.await_count == 2

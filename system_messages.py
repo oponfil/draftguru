@@ -96,7 +96,7 @@ SYSTEM_MESSAGES = {
     "settings_prompt_saved": "✅ Prompt saved!",
     "settings_prompt_truncated": "⚠️ Prompt was too long, so I saved only the first {max_length} characters.",
     "settings_prompt_cleared": "🧹 Prompt cleared.",
-    "settings_prompt_current": f"📝 Global prompt (all chats):\n«{{prompt}}»\n\nSend a new prompt to replace it (Max length: {USER_PROMPT_MAX_LENGTH} chars):",
+    "settings_prompt_current": f"📝 Global prompt (all chats):\n\n<code>{{prompt}}</code>\n\nSend a new prompt to replace it (Max length: {USER_PROMPT_MAX_LENGTH} chars):",
     "settings_prompt_no_prompt": f"📝 Global prompt (all chats): not set.\n\nSend a prompt to set it (Max length: {USER_PROMPT_MAX_LENGTH} chars):",
     # — Auto-reply labels (base, without prefix) —
     "auto_reply_prefix": "⏰ Auto-reply:",
@@ -131,8 +131,8 @@ SYSTEM_MESSAGES = {
 
 
     # — Chats: per-chat prompt —
-    "chats_prompt_current": f"📝 Prompt for {{chat_name}}:\n«{{prompt}}»\n\nSend a new prompt to replace it (Max length: {CHAT_PROMPT_MAX_LENGTH} chars):",
-    "chats_prompt_no_prompt": f"📝 Prompt for {{chat_name}}: not set.\n\nSend a prompt to set it (Max length: {CHAT_PROMPT_MAX_LENGTH} chars):",
+    "chats_prompt_current": f"📝 Prompt for <b>{{chat_name}}</b>:\n\n<code>{{prompt}}</code>\n\nSend a new prompt to replace it (Max length: {CHAT_PROMPT_MAX_LENGTH} chars):",
+    "chats_prompt_no_prompt": f"📝 Prompt for <b>{{chat_name}}</b>: not set.\n\nSend a prompt to set it (Max length: {CHAT_PROMPT_MAX_LENGTH} chars):",
 
     # — Prompt editor buttons —
     "prompt_cancel": "❌ Cancel",

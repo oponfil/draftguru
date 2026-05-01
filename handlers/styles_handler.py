@@ -1,6 +1,7 @@
 # handlers/styles_handler.py — Обработчик команды /chats (per-chat стили и автоответ)
 
 import asyncio
+import html
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -425,12 +426,13 @@ async def on_chat_prompt_callback(update: Update, context: ContextTypes.DEFAULT_
     current_prompt = chat_prompts.get(str(chat_id), "")
 
     chat_name = _find_chat_name(context, chat_id)
+    safe_chat_name = html.escape(chat_name)
 
     messages = await get_system_messages(u.language_code)
     if current_prompt:
-        msg = messages.get("chats_prompt_current", "").format(chat_name=chat_name, prompt=current_prompt)
+        msg = messages.get("chats_prompt_current", "").format(chat_name=safe_chat_name, prompt=html.escape(current_prompt))
     else:
-        msg = messages.get("chats_prompt_no_prompt", "").format(chat_name=chat_name)
+        msg = messages.get("chats_prompt_no_prompt", "").format(chat_name=safe_chat_name)
 
     buttons = [[InlineKeyboardButton(messages.get("prompt_cancel", "❌ Cancel"), callback_data=f"chatprompt_cancel:{chat_id}")]]
     if current_prompt:
@@ -438,7 +440,7 @@ async def on_chat_prompt_callback(update: Update, context: ContextTypes.DEFAULT_
 
     await clear_pending_input(context, u.id, context.bot)
     context.user_data["awaiting_chat_prompt"] = chat_id
-    await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(buttons))
+    await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
 
     if DEBUG_PRINT:
         print(f"{get_timestamp()} [BOT] Chat prompt editor opened for chat {chat_id} by user {u.id}")

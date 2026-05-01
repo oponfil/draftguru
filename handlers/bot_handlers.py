@@ -502,6 +502,16 @@ async def on_json_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         global_style = user_settings.get("style", "userlike")
 
         for index, item in enumerate(data):
+            progress_text = f"{started_msg}\n\n⏳ {index + 1} / {len(data)}"
+            try:
+                await status_msg.edit_text(progress_text)
+            except Exception as edit_err:
+                if DEBUG_PRINT:
+                    print(
+                        f"{get_timestamp()} [BOT] WARNING failed to update batch progress "
+                        f"for user {u.id}: {edit_err}"
+                    )
+
             if not isinstance(item, dict):
                 error_count += 1
                 continue

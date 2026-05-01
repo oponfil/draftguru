@@ -139,7 +139,9 @@ AUTONOMOUS_DELAY_PROMPT = (
     "  - If replying immediately: calculate realistic human typing time (e.g. 10s for short, 60s for long).\n"
     "  - If the user is at work or busy: use a longer delay (e.g. 900s for 15 mins, 3600s for 1 hour).\n"
     "  - If saying 'good morning' after 'good night': delay until morning (e.g. 28800s for 8 hours).\n"
-    "  - If you are unsure, the conversation is too sensitive, they suspect AI, or asked to stop messaging: output [DELAY: MANUAL] to disable auto-reply and leave it as a draft for the human to review.\n"
+    "  - If you are unsure or asked to stop messaging: output [DELAY: MANUAL] to disable auto-reply and leave it as a draft for the human to review.\n"
+    "  - EXPOSURE RISK: If the interlocutor suspects you are an AI, accuses you of sounding like a computer, complains about the quality of your replies (e.g., too dry, too emotional, unnatural), or notices you are forgetting context: output [DELAY: MANUAL].\n"
+    "  - If the conversation requires an action you cannot perform (e.g. taking a photo, recording a video, sending a voice note, making a call, meeting in person, or any non-text action), DO NOT pretend to do it by writing 'Here it is' or generating placeholders. Output ONLY [DELAY: MANUAL] so the human can handle it.\n"
     "  CRITICAL: You are ALLOWED and REQUIRED to output this tag. NEVER omit the [DELAY: ...] tag! It must be the last thing you output.\n\n"
 )
 

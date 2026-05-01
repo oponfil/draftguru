@@ -18,6 +18,13 @@ def invalidate_user_cache(user_id: int) -> None:
     _user_cache.pop(user_id, None)
 
 
+def _truncate_for_log(value: Optional[str], limit: int = 30) -> Optional[str]:
+    """Обрезает длинную строку для DEBUG-лога, чтобы не засорять stdout."""
+    if value and len(value) > limit:
+        return value[:limit] + "…"
+    return value
+
+
 class UserStorageError(RuntimeError):
     """Ошибка чтения/создания пользователя в БД."""
 
@@ -305,9 +312,12 @@ async def update_user_settings(user_id: int, settings: dict, *, current_settings
         invalidate_user_cache(user_id)
         if DEBUG_PRINT:
             log_settings = {**merged}
-            cp = log_settings.get("custom_prompt")
-            if cp and len(cp) > 30:
-                log_settings["custom_prompt"] = cp[:30] + "…"
+            log_settings["custom_prompt"] = _truncate_for_log(log_settings.get("custom_prompt"))
+            chat_prompts = log_settings.get("chat_prompts")
+            if chat_prompts:
+                log_settings["chat_prompts"] = {
+                    cid: _truncate_for_log(prompt) for cid, prompt in chat_prompts.items()
+                }
             print(f"{get_timestamp()} [DB] Settings updated for user {user_id}: {log_settings}")
         return merged
     except Exception as e:

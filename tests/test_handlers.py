@@ -624,6 +624,7 @@ class TestOnPyrogramMessage:
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -775,6 +776,7 @@ class TestOnPyrogramMessage:
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "Hi there!"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -969,6 +971,7 @@ class TestOnPyrogramDraft:
                 {"role": "user", "text": "Привет"},
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "AI ответ"
 
             await on_pyrogram_draft(123, 456, "напиши стихи")
@@ -1024,6 +1027,7 @@ class TestOnPyrogramDraft:
                 {"role": "user", "text": "Привет"},
             ])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "AI ответ"
 
             await on_pyrogram_draft(123, 456, "💕 напиши стихи")
@@ -1066,6 +1070,7 @@ class TestOnPyrogramDraft:
              patch("handlers.pyrogram_handlers.generate_reply", new_callable=AsyncMock) as mock_generate_reply:
             mock_pc.read_chat_history = AsyncMock(return_value=[])
             mock_pc.set_draft = AsyncMock(return_value=True)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
 
             await on_pyrogram_draft(123, 456, "💕")
 
@@ -1898,6 +1903,7 @@ class TestAutonomousAutoReply:
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "Привет! [DELAY: 30]"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -1925,6 +1931,7 @@ class TestAutonomousAutoReply:
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "Ок, извини [DELAY: MANUAL]"
 
             await on_pyrogram_message(123, MagicMock(), message)
@@ -1952,6 +1959,7 @@ class TestAutonomousAutoReply:
             mock_pc.set_draft = AsyncMock(return_value=True)
             mock_pc.get_draft = AsyncMock(return_value=None)
             mock_pc.get_chat_bio = AsyncMock(return_value=None)
+            mock_pc.is_chat_deleted = AsyncMock(return_value=False)
             mock_gen.return_value = "Просто ответ без тега"
 
             await on_pyrogram_message(123, MagicMock(), message)

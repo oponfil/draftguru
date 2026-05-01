@@ -562,6 +562,14 @@ async def _run_generation_loop(
             return False
 
         ai_text = reply_text.strip()
+
+        if await pyrogram_client.is_chat_deleted(user_id, chat_id):
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [BOT] Chat {chat_id} was deleted by user {user_id}, skipping draft.")
+            if clear_probe:
+                await clear_probe()
+            return False
+
         await register_bot_draft_and_schedule(user_id, chat_id, ai_text, user_settings, style, skip_auto_reply=skip_auto_reply, dynamic_delay=dynamic_delay)
 
         return True
@@ -610,7 +618,8 @@ async def _generate_reply_for_chat(
                 return
             _bot_drafts.pop(key, None)
             _bot_draft_echoes.pop(key, None)
-            await pyrogram_client.set_draft(user_id, chat_id, "")
+            if not await pyrogram_client.is_chat_deleted(user_id, chat_id):
+                await pyrogram_client.set_draft(user_id, chat_id, "")
 
         style = get_effective_style(user_settings, chat_id)
         draft_replaced = await _run_generation_loop(
@@ -623,7 +632,8 @@ async def _generate_reply_for_chat(
         if not draft_replaced:
             _bot_drafts.pop(key, None)
             _bot_draft_echoes.pop(key, None)
-            await pyrogram_client.set_draft(user_id, chat_id, "")
+            if not await pyrogram_client.is_chat_deleted(user_id, chat_id):
+                await pyrogram_client.set_draft(user_id, chat_id, "")
     finally:
         _reply_locks.pop(key, None)
         _reply_pending.pop(key, None)
@@ -934,6 +944,11 @@ async def on_pyrogram_draft(user_id: int, chat_id: int, draft_text: str) -> None
         if is_refusal:
             skip_auto_reply = True
         if not ai_text or not ai_text.strip():
+            return
+
+        if await pyrogram_client.is_chat_deleted(user_id, chat_id):
+            if DEBUG_PRINT:
+                print(f"{get_timestamp()} [BOT] Chat {chat_id} was deleted by user {user_id}, skipping instruction draft.")
             return
 
         _bot_drafts[key] = ai_text

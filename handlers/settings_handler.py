@@ -1,6 +1,7 @@
 # handlers/settings_handler.py — Обработчик команды /settings
 
 import asyncio
+import html
 
 from datetime import datetime, timedelta, timezone
 
@@ -145,7 +146,7 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         custom_prompt = settings.get("custom_prompt", "")
         messages = await get_system_messages(u.language_code)
         if custom_prompt:
-            msg = messages.get("settings_prompt_current", "").format(prompt=custom_prompt)
+            msg = messages.get("settings_prompt_current", "").format(prompt=html.escape(custom_prompt))
         else:
             msg = messages.get("settings_prompt_no_prompt", "")
 
@@ -155,7 +156,7 @@ async def on_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await clear_pending_input(context, u.id, context.bot)
         context.user_data["awaiting_prompt"] = True
-        await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(buttons))
+        await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="HTML")
         if DEBUG_PRINT:
             print(f"{get_timestamp()} [BOT] Prompt editor opened for user {u.id}")
         return

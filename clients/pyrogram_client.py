@@ -732,16 +732,39 @@ async def get_draft(user_id: int, chat_id: int) -> str | None:
         return None
 
 
-async def is_chat_archived(user_id: int, chat_id: int) -> bool:
-    """Проверяет, находится ли чат в архиве (folder_id == 1).
+# Sentinel-результаты для _fetch_chat_dialog: позволяют отличить
+# «диалог не найден» (валидный None) от «нет клиента» / «ошибка API».
+_DIALOG_NO_CLIENT = object()
+_DIALOG_ERROR = object()
 
-    Семантика fail-close: при отсутствии активного клиента или ошибке Telegram
-    возвращаем True, чтобы вызывающий код (auto-reply / follow-up) НЕ отправил
-    сообщение в чат, который пользователь мог только что архивировать.
+# Короткоживущий кэш результатов GetPeerDialogs: {(user_id, chat_id): (expires_at, value)}.
+# Нужен, чтобы цепочка is_chat_archived/is_chat_deleted в одном цикле генерации
+# не делала по 2-3 RPC на тот же чат (риск FloodWait).
+_dialog_cache: dict[tuple[int, int], tuple[float, Any]] = {}
+_DIALOG_CACHE_TTL_SEC = 10.0
+
+
+def invalidate_dialog_cache(user_id: int, chat_id: int) -> None:
+    """Инвалидирует кэш диалога (например, после set_draft / send_message)."""
+    _dialog_cache.pop((user_id, chat_id), None)
+
+
+async def _fetch_chat_dialog(user_id: int, chat_id: int):
+    """Возвращает Dialog, None (нет диалога), либо sentinel при недоступности клиента/ошибке.
+
+    Кэширует результат на _DIALOG_CACHE_TTL_SEC секунд, чтобы избежать лишних RPC.
+    На исключениях логирует и возвращает _DIALOG_ERROR — никогда не молчит.
     """
+    key = (user_id, chat_id)
+    now = asyncio.get_event_loop().time()
+    cached = _dialog_cache.get(key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
     client = _active_clients.get(user_id)
     if not client:
-        return True
+        _dialog_cache[key] = (now + _DIALOG_CACHE_TTL_SEC, _DIALOG_NO_CLIENT)
+        return _DIALOG_NO_CLIENT
 
     try:
         peer = await client.resolve_peer(chat_id)
@@ -751,12 +774,41 @@ async def is_chat_archived(user_id: int, chat_id: int) -> bool:
             )
         )
         dialog = next(iter(result.dialogs), None)
-        if dialog is None:
-            return False
-        return getattr(dialog, "folder_id", 0) == 1
+        _dialog_cache[key] = (now + _DIALOG_CACHE_TTL_SEC, dialog)
+        return dialog
     except Exception as e:
-        print(f"{get_timestamp()} [PYROGRAM] ERROR checking archive status for chat {chat_id}: {e}")
+        print(f"{get_timestamp()} [PYROGRAM] ERROR fetching dialog for chat {chat_id}: {e}")
+        _dialog_cache[key] = (now + _DIALOG_CACHE_TTL_SEC, _DIALOG_ERROR)
+        return _DIALOG_ERROR
+
+
+async def is_chat_archived(user_id: int, chat_id: int) -> bool:
+    """Проверяет, находится ли чат в архиве (folder_id == 1).
+
+    Семантика fail-close: при отсутствии активного клиента или ошибке Telegram
+    возвращаем True, чтобы вызывающий код (auto-reply / follow-up) НЕ отправил
+    сообщение в чат, который пользователь мог только что архивировать.
+    Отсутствие диалога в выдаче (dialog is None) трактуется как «не архив»;
+    для проверки удаления используется отдельная функция is_chat_deleted.
+    """
+    dialog = await _fetch_chat_dialog(user_id, chat_id)
+    if dialog is _DIALOG_NO_CLIENT or dialog is _DIALOG_ERROR:
         return True
+    if dialog is None:
+        return False
+    return getattr(dialog, "folder_id", 0) == 1
+
+
+async def is_chat_deleted(user_id: int, chat_id: int) -> bool:
+    """Проверяет, удалён ли диалог (не существует у пользователя).
+
+    Семантика fail-close: при отсутствии клиента или ошибке API возвращаем True,
+    чтобы НЕ записать черновик в потенциально удалённый чат.
+    """
+    dialog = await _fetch_chat_dialog(user_id, chat_id)
+    if dialog is _DIALOG_NO_CLIENT or dialog is _DIALOG_ERROR:
+        return True
+    return dialog is None
 
 
 async def send_message(user_id: int, chat_id: int, text: str) -> bool:

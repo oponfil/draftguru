@@ -539,9 +539,10 @@ class TestOnJsonDocument:
             await on_json_document(mock_update, mock_context)
 
         assert mock_proc.await_count == 2
-        status_msg.edit_text.assert_called_once()
-        edit_text_args, _ = status_msg.edit_text.call_args
-        assert "batch_outreach_success" in edit_text_args[0]
+        # Прогресс throttle: первый/последний апдейт + финальный success-msg.
+        assert status_msg.edit_text.await_count >= 1
+        last_edit_args, _ = status_msg.edit_text.call_args
+        assert "batch_outreach_success" in last_edit_args[0]
 
 
 class TestProcessBatchItem:
